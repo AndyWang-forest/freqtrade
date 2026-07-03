@@ -84,6 +84,7 @@ user_data/strategy_research/start_manual_research.sh --weekly-knowledge-update
 user_data/strategy_research/start_manual_research.sh --walk-forward
 user_data/strategy_research/start_manual_research.sh --promotion-gate
 user_data/strategy_research/start_manual_research.sh --family-risk-gate
+user_data/strategy_research/start_manual_research.sh --a1-external-permission
 user_data/strategy_research/start_manual_research.sh --trade-behavior
 user_data/strategy_research/start_manual_research.sh --failure-attribution
 user_data/strategy_research/start_manual_research.sh --post-run-attribution
@@ -100,6 +101,29 @@ Removed legacy entrypoints must not be reintroduced without a new PR and a clear
 workflow reason: broad smoke wrappers, all-in-one cycle wrappers, agenda
 executors, manual playbook generators, behavior-plan generators, and separate
 K-line lab wrappers.
+
+## A1 External Permission Research
+
+The A1 failed-bounce short family can be tested behind an external
+regime-permission artifact instead of hardcoding long-history regime logic
+inside a Freqtrade strategy class:
+
+```bash
+user_data/strategy_research/start_manual_research.sh --a1-external-permission
+```
+
+This mode refreshes the data-derived regime manifest check, builds the A1
+permission artifact from BTC/ETH futures context, runs the current A1
+permission strategy validation, evaluates it with the family risk gate, and
+then refreshes lineage, research memory, consolidation, and the dashboard. It
+does not change dry-run/live config and does not promote a strategy without the
+separate dry-run risk preflight and manual approval step.
+
+`family_risk_gate.py` accepts both older main/walk-forward/regime CSVs and
+newer manifest/recent CSV rows. Manifest bear rows can serve as target-regime
+evidence; manifest non-bear rows serve as hostile evidence. Rows that only have
+aggregate simulation are allowed for research reporting, but rows with trades
+still require trade-level artifacts before dry-run review.
 
 ## Current Evidence Outputs
 

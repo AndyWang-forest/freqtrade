@@ -15,7 +15,7 @@ PYTHON="${PYTHON:-./.venv/bin/python}"
 
 usage() {
   cat <<'EOF'
-Usage: user_data/strategy_research/start_manual_research.sh [--quick|--source-scout|--price-action-knowledge|--bilibili-transcripts|--knowledge-graph|--knowledge-guided-hypotheses|--factor-research|--factor-to-strategy|--event-study|--regime-windows|--agent-brain|--weekly-knowledge-update|--walk-forward|--promotion-gate|--family-risk-gate|--dryrun-risk-preflight|--trade-behavior|--failure-attribution|--post-run-attribution|--mature-researcher|--mature-researcher-queue|--execute-mature-researcher|--strategy-lineage|--research-memory|--memory-guided-hypotheses|--memory-guided-strategies|--preflight-only] [--extra-agent-arg ARG ...]
+Usage: user_data/strategy_research/start_manual_research.sh [--quick|--source-scout|--price-action-knowledge|--bilibili-transcripts|--knowledge-graph|--knowledge-guided-hypotheses|--factor-research|--factor-to-strategy|--event-study|--regime-windows|--agent-brain|--weekly-knowledge-update|--walk-forward|--promotion-gate|--family-risk-gate|--a1-external-permission|--dryrun-risk-preflight|--trade-behavior|--failure-attribution|--post-run-attribution|--mature-researcher|--mature-researcher-queue|--execute-mature-researcher|--strategy-lineage|--research-memory|--memory-guided-hypotheses|--memory-guided-strategies|--preflight-only] [--extra-agent-arg ARG ...]
 
 Manual entrypoint for the research-only strategy agent.
 
@@ -42,6 +42,8 @@ Modes:
   --promotion-gate   Evaluate all-family promotion readiness with family-level risk controls and refresh report/dashboard.
   --family-risk-gate
                      Same gate as promotion-gate: strategy-family router + circuit-breaker dry-run readiness simulation.
+  --a1-external-permission
+                     Run the A1 external regime-permission artifact experiment, then family gate and memory refresh.
   --dryrun-risk-preflight
                      Verify callable strategy risk hooks, config overrides, and final effective dry-run risk settings.
   --trade-behavior  Analyze exported trades for behavior-level diagnostics.
@@ -134,6 +136,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --family-risk-gate)
       mode="family_risk_gate"
+      shift
+      ;;
+    --a1-external-permission)
+      mode="a1_external_permission"
       shift
       ;;
     --dryrun-risk-preflight)
@@ -388,6 +394,15 @@ PY
   family_risk_gate)
     echo "== Strategy Research Agent: family risk gate =="
     "$PYTHON" user_data/strategy_research/regime_window_builder.py --check-only
+    "$PYTHON" user_data/strategy_research/family_risk_gate.py ${extra_args[@]+"${extra_args[@]}"}
+    run_optional_script user_data/strategy_research/research_agenda.py
+    run_promotion_experience_update
+    "$PYTHON" user_data/strategy_research/run_research_agent.py --skip-backtests
+    ;;
+  a1_external_permission)
+    echo "== Strategy Research Agent: A1 external permission validation =="
+    "$PYTHON" user_data/strategy_research/regime_window_builder.py --check-only
+    "$PYTHON" user_data/strategy_research/run_a1_external_permission_strategy_experiment.py ${extra_args[@]+"${extra_args[@]}"}
     "$PYTHON" user_data/strategy_research/family_risk_gate.py ${extra_args[@]+"${extra_args[@]}"}
     run_optional_script user_data/strategy_research/research_agenda.py
     run_promotion_experience_update

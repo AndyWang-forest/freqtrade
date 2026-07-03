@@ -21,7 +21,14 @@ from pathlib import Path
 from typing import Any
 
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+def find_repo_root() -> Path:
+    for path in [Path.cwd(), *Path(__file__).resolve().parents]:
+        if (path / "pyproject.toml").exists() and (path / "user_data").exists():
+            return path
+    raise RuntimeError("Could not locate freqtrade repo root.")
+
+
+REPO_ROOT = find_repo_root()
 REPORT_DIR = REPO_ROOT / "user_data/strategy_research/reports"
 OUTPUT_DIR = REPO_ROOT / "user_data/strategy_research/family_risk_gate"
 PROMOTION_DIR = REPO_ROOT / "user_data/strategy_research/promotion_reports"
@@ -263,12 +270,32 @@ def summarize_strategy(
         for row in high_rows
         if row.get("slice") == "main"
     }
+    manifest_target = [
+        (row, sims[row_key(row)])
+        for row in high_rows
+        if row.get("slice") == "manifest" and "manifest_bear" in row.get("window", "")
+    ]
+    recent = {
+        row.get("window", ""): (row, sims[row_key(row)])
+        for row in high_rows
+        if row.get("slice") == "recent"
+    }
     walk_forward = [(row, sims[row_key(row)]) for row in high_rows if row.get("slice") == "walk_forward"]
     hostile = [(row, sims[row_key(row)]) for row in high_rows if row.get("slice") == "regime"]
+    if not hostile:
+        hostile = [
+            (row, sims[row_key(row)])
+            for row in high_rows
+            if row.get("slice") == "manifest" and "manifest_bear" not in row.get("window", "")
+        ]
 
     row_65, sim_65 = main.get("65d", ({}, None))
     row_30, sim_30 = main.get("30d", ({}, None))
     row_5, sim_5 = main.get("latest5", ({}, None))
+    if sim_65 is None and manifest_target:
+        row_65, sim_65 = manifest_target[0]
+    if sim_5 is None:
+        row_5, sim_5 = recent.get("latest5", ({}, None))
     target_65 = sim_65.guarded_profit_pct if sim_65 else 0.0
     target_30 = sim_30.guarded_profit_pct if sim_30 else 0.0
     latest5 = sim_5.guarded_profit_pct if sim_5 else 0.0
@@ -280,6 +307,11 @@ def summarize_strategy(
     hostile_guarded_worst = min((sim.guarded_profit_pct for _, sim in hostile), default=0.0)
     hostile_guarded_total = sum(sim.guarded_profit_pct for _, sim in hostile)
     evidence_modes = sorted({sim.evidence_mode for sim in sims.values()})
+    aggregate_rows_with_trades = [
+        row.get("window", "")
+        for row in high_rows
+        if sims[row_key(row)].evidence_mode == "aggregate_simulation" and inum(row, "trades") > 0
+    ]
 
     blockers: list[str] = []
     supports: list[str] = []
@@ -287,7 +319,9 @@ def summarize_strategy(
         blockers.append(f"65d target-regime guarded profit {target_65:.4f}% <= {TARGET_65D_GATE:.1f}%")
     else:
         supports.append(f"65d target-regime guarded profit {target_65:.4f}% clears gate")
-    if target_30 <= TARGET_30D_GATE:
+    if sim_30 is None:
+        blockers.append("30d target-regime row missing from gate input")
+    elif target_30 <= TARGET_30D_GATE:
         blockers.append(f"30d target-regime guarded profit {target_30:.4f}% <= {TARGET_30D_GATE:.1f}%")
     else:
         supports.append(f"30d target-regime guarded profit {target_30:.4f}% clears gate")
@@ -305,15 +339,17 @@ def summarize_strategy(
         supports.append(f"hostile-regime guarded worst {hostile_guarded_worst:.4f}% is contained")
     if wf_total and wf_positive < wf_total and wf_worst < -2.0:
         blockers.append(f"walk-forward guarded positives {wf_positive}/{wf_total}, worst {wf_worst:.4f}%")
-    if "aggregate_simulation" in evidence_modes:
-        blockers.append("some rows used aggregate simulation; require trade-level confirmation before dry-run review")
+    if aggregate_rows_with_trades:
+        blockers.append(
+            "some rows with trades used aggregate simulation; require trade-level confirmation before dry-run review"
+        )
 
     ready = not blockers
     state = "dryrun_candidate_review_pending_manual_approval" if ready else "research_candidate"
     next_actions: list[str] = []
     if blockers:
         next_actions.append("improve_regime_router_or_family_risk_controls")
-    if "aggregate_simulation" in evidence_modes:
+    if aggregate_rows_with_trades:
         next_actions.append("rerun_with_trade_level_artifacts")
     if ready:
         next_actions.append("run_recursive_lookahead_and_manual_dryrun_review")
