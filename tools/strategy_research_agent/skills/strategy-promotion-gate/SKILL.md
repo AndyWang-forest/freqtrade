@@ -30,6 +30,8 @@ Use when the user asks:
 
 If dry-run evidence supports live review, prepare a secret-free candidate PR.
 Do not commit local bot runtime state.
+Never open or comment on a PR against the official upstream `freqtrade/freqtrade`
+repository. Candidate PRs must target the user's fork/local repo only.
 
 Allowed in the PR:
 

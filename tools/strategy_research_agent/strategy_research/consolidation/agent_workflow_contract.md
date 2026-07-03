@@ -116,7 +116,7 @@ it into a strategy hypothesis.
 
 ## Safety Boundary
 
-This workflow is research-only. It must not start live trading, read exchange API keys, modify dry-run/live config, or promote a theory-derived strategy without evidence gates.
+This workflow is research-only. It must not start live trading, read exchange API keys, modify dry-run/live config, or promote a theory-derived strategy without evidence gates. It must not create PRs, comments, reviews, issues, or pushes against the official upstream `freqtrade/freqtrade` repository; that repository is read-only reference material for this Agent.
 
 ## Futures Runtime Safety Gate
 

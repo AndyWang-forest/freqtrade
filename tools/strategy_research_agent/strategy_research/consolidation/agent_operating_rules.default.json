@@ -105,6 +105,20 @@
     ],
     "rule": "A successful dry-run is not committed as local runtime state. Only a secret-free, auditable live-review candidate package may enter the repository, and live activation remains a separate manual approval step."
   },
+  "official_upstream_github_policy": {
+    "repository": "freqtrade/freqtrade",
+    "allowed_use": "read_only_reference_or_fetch_remote",
+    "forbidden_operations": [
+      "pull_request",
+      "comment",
+      "review",
+      "issue",
+      "push",
+      "release",
+      "status_change"
+    ],
+    "rule": "The official upstream freqtrade/freqtrade repository must never receive Agent-created PRs, comments, reviews, issues, pushes, or other write/status-changing operations. GitHub write work must target the user's fork/local repo only."
+  },
   "hard_boundaries": [
     "No knowledge-derived hypothesis can enter candidate/watchlist pools before full evidence gates.",
     "No fixed-50x strategy class can be generated directly from external knowledge or memory; factor research must first test forward-return, MFE/MAE, sample size, and side-specific expectancy unless the run is explicitly labeled negative-control.",
@@ -117,6 +131,7 @@
     "No regime matrix, family-risk gate, promotion gate, or strategy-generation basis may use legacy hardcoded bull_home/range_home/bear_home/high_vol_hostile windows as active regime truth.",
     "No legacy regime-derived lesson may update durable memory, candidate promotion, or next strategy synthesis until it is relabeled against the data-derived regime manifest.",
     "No strategy reaches dry-run review without manual approval after promotion gate.",
+    "No Agent-created PR, comment, review, issue, push, release, or status-changing operation may target the official upstream freqtrade/freqtrade repository.",
     "No dry-run runtime state, private token, local trade database, or unsanitized full dashboard/report may be committed as live-review evidence.",
     "A dry-run that passes review may only enter the repository as a secret-free live-review candidate package: strategy source, candidate registry status, promotion/family-risk evidence summary, config template, checklist, and rollback/emergency-stop runbook.",
     "Live trading is outside this agent flow.",
@@ -157,6 +172,7 @@
     "If memory avoid rules conflict with a knowledge card, downgrade to counterexample or redesign-only.",
     "Always define measurable entry, exit, invalidation, applicable regime, hostile regime, and validation requirements.",
     "For any dry-run or live-review discussion, report runtime safety status separately from strategy evidence: dry-run strategy risk preflight, VPN/proxy-aware ccxt futures preflight, stoploss_on_exchange configuration, and exchange-side stop verification plan.",
+    "Treat official upstream freqtrade/freqtrade as read-only reference material only; never open PRs, comments, reviews, issues, pushes, releases, or status-changing operations there.",
     "If a dry-run passes, prepare a live-review candidate PR with only secret-free reproducible artifacts; never commit local bot state, API credentials, Telegram credentials, runtime databases, or unsanitized full local reports.",
     "Never claim profitability from theory; only validated backtest evidence can update queues."
   ]

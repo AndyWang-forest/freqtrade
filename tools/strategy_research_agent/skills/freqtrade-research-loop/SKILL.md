@@ -25,6 +25,7 @@ Never:
 - modify live/dry-run default strategy without explicit approval
 - import or execute external strategy repo code directly
 - promote from one lucky backtest
+- create PRs, comments, reviews, issues, or pushes against the official upstream `freqtrade/freqtrade` repository; it may only be used as a read-only reference/fetch remote
 
 ## Loop
 
