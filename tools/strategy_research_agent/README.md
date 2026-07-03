@@ -206,6 +206,7 @@ On Windows, use `README_WINDOWS.md` for the PowerShell cycle runner and Task Sch
 - Research only.
 - No live trading startup.
 - No live API key access.
+- No PR, comment, review, issue, or push operation may target the official upstream `freqtrade/freqtrade` repository. The official upstream may exist only as a read-only fetch remote; all writable GitHub work must target the user's fork or this local repository.
 - No generated reports, market data, or local credentials should be committed.
 - Generated strategies must come from knowledge graph, research memory, factor/event evidence, and explicit strategy-family contracts.
 - Memory-guided variants must lock the current futures risk policy: isolated USDT-M futures, 50x cap, ROI `{"0":1.20,"180":1.50,"360":1.00}`, and stoploss `-0.60`.

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -38,6 +39,10 @@ REQUIRED_REGIME_ARTIFACTS = [
 ]
 ALLOWED_PRIMARY_ENTRY_TIMEFRAMES = {"3m", "5m", "15m"}
 FORBIDDEN_PRIMARY_ENTRY_TIMEFRAMES = {"1h", "4h", "1d"}
+OFFICIAL_FREQTRADE_REMOTE_TOKENS = (
+    "github.com/freqtrade/freqtrade",
+    "github.com:freqtrade/freqtrade",
+)
 
 
 @dataclass
@@ -66,6 +71,74 @@ def read_json(path: Path) -> dict[str, Any]:
 
 def add(checks: list[GateCheck], name: str, status: str, detail: str) -> None:
     checks.append(GateCheck(name=name, status=status, detail=detail))
+
+
+def is_official_freqtrade_remote(url: str) -> bool:
+    normalized = url.strip().lower()
+    if normalized.endswith(".git"):
+        normalized = normalized[:-4]
+    return any(token in normalized for token in OFFICIAL_FREQTRADE_REMOTE_TOKENS)
+
+
+def validate_official_upstream_write_guard(checks: list[GateCheck]) -> None:
+    try:
+        completed = subprocess.run(
+            ["git", "remote", "-v"],
+            cwd=REPO_ROOT,
+            check=False,
+            text=True,
+            capture_output=True,
+        )
+    except OSError as exc:
+        add(checks, "github:official_freqtrade_write_guard", "fail", f"cannot inspect git remotes: {exc}")
+        return
+    if completed.returncode != 0:
+        add(
+            checks,
+            "github:official_freqtrade_write_guard",
+            "fail",
+            f"git remote -v failed: {completed.stderr.strip()[:240]}",
+        )
+        return
+
+    official_fetches: list[str] = []
+    dangerous: list[str] = []
+    for line in completed.stdout.splitlines():
+        parts = line.split()
+        if len(parts) < 3:
+            continue
+        remote_name, url, kind = parts[0], parts[1], parts[2].strip("()")
+        if not is_official_freqtrade_remote(url):
+            continue
+        if kind == "push":
+            dangerous.append(f"{remote_name} push -> {url}")
+        elif remote_name == "origin":
+            dangerous.append(f"origin fetch -> {url}")
+        else:
+            official_fetches.append(f"{remote_name} fetch -> {url}")
+
+    if dangerous:
+        add(
+            checks,
+            "github:official_freqtrade_write_guard",
+            "fail",
+            "official freqtrade/freqtrade must not be a writable/default remote: " + "; ".join(dangerous),
+        )
+        return
+    if official_fetches:
+        add(
+            checks,
+            "github:official_freqtrade_write_guard",
+            "ok",
+            "official freqtrade/freqtrade present only as read-only fetch remote; PR/comment/push/review/issue operations are forbidden",
+        )
+        return
+    add(
+        checks,
+        "github:official_freqtrade_write_guard",
+        "ok",
+        "no official freqtrade/freqtrade remote detected; PR/comment/push/review/issue operations remain forbidden",
+    )
 
 
 def resolve_rules_path(checks: list[GateCheck]) -> Path | None:
@@ -210,6 +283,7 @@ def build_payload() -> dict[str, Any]:
     rules: dict[str, Any] = {}
     if rules_path:
         rules = validate_rules(rules_path, checks)
+    validate_official_upstream_write_guard(checks)
     failed = [check for check in checks if check.status == "fail"]
     return {
         "status": "fail" if failed else "ok",
