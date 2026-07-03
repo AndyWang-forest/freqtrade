@@ -97,6 +97,13 @@ class StrategyAudit:
 class FakeTrade:
     def __init__(self, open_date_utc: datetime) -> None:
         self.open_date_utc = open_date_utc
+        self._custom_data: dict[str, Any] = {}
+
+    def get_custom_data(self, key: str, default: Any = None) -> Any:
+        return self._custom_data.get(key, default)
+
+    def set_custom_data(self, key: str, value: Any) -> None:
+        self._custom_data[key] = value
 
 
 def rel(path: Path) -> str:
@@ -318,6 +325,32 @@ def check_callbacks(audit: StrategyAudit, strategy: IStrategy) -> None:
                 audit.add("callback:custom_exit_time_stop", "ok", result)
             else:
                 audit.add("callback:custom_exit_time_stop", "fail", f"expected time_stop reason, got {result!r}")
+
+        if hasattr(strategy, "peak_drawdown_activation_profit") and hasattr(strategy, "peak_drawdown_giveback"):
+            try:
+                peak_trade = FakeTrade(datetime.now(UTC) - timedelta(hours=1))
+                strategy.custom_exit(
+                    pair="BTC/USDT:USDT",
+                    trade=peak_trade,
+                    current_time=datetime.now(UTC),
+                    current_rate=100.0,
+                    current_profit=0.80,
+                )
+                result = strategy.custom_exit(
+                    pair="BTC/USDT:USDT",
+                    trade=peak_trade,
+                    current_time=datetime.now(UTC),
+                    current_rate=100.0,
+                    current_profit=0.39,
+                )
+            except Exception as exc:
+                audit.add("callback:custom_exit_peak_drawdown", "fail", f"{type(exc).__name__}: {exc}")
+            else:
+                expected = getattr(strategy, "peak_drawdown_exit_reason", "profit_peak_drawdown")
+                if result == expected:
+                    audit.add("callback:custom_exit_peak_drawdown", "ok", str(result))
+                else:
+                    audit.add("callback:custom_exit_peak_drawdown", "fail", f"expected {expected!r}, got {result!r}")
     else:
         audit.add("callback:custom_exit", "fail", f"use_custom_exit={use_custom_exit} owner={custom_exit_owner}")
 
