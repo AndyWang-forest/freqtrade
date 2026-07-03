@@ -113,12 +113,25 @@ def resample_to_1h(frame: pd.DataFrame) -> pd.DataFrame:
 
 def load_pair_1h(pair: str) -> tuple[pd.DataFrame, str]:
     preferred = DATA_DIR / f"{pair}-1h-futures.feather"
+    freshest_frame: pd.DataFrame | None = None
+    freshest_source: str | None = None
+    freshest_end: pd.Timestamp | None = None
     if preferred.exists():
-        return read_ohlcv(preferred), rel(preferred)
+        preferred_frame = read_ohlcv(preferred)
+        freshest_frame = preferred_frame
+        freshest_source = rel(preferred)
+        freshest_end = preferred_frame.index.max()
     for timeframe in ["15m", "5m", "1m"]:
         path = DATA_DIR / f"{pair}-{timeframe}-futures.feather"
         if path.exists():
-            return resample_to_1h(read_ohlcv(path)), f"{rel(path)} resampled_to_1h"
+            frame = read_ohlcv(path)
+            end = frame.index.max()
+            if freshest_end is None or end > freshest_end:
+                freshest_frame = resample_to_1h(frame)
+                freshest_source = f"{rel(path)} resampled_to_1h"
+                freshest_end = end
+    if freshest_frame is not None and freshest_source is not None:
+        return freshest_frame, freshest_source
     raise FileNotFoundError(f"Missing 1h/15m/5m/1m futures data for {pair}")
 
 
