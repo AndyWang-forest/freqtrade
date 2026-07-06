@@ -51,14 +51,15 @@ The gate requires these fixed artifacts to be loadable:
 6. Refresh data-derived regime windows and quarantine legacy regime interpretations.
 7. Generate memory-guided strategy variants only after the knowledge/memory layers are refreshed.
 8. Backtest through Freqtrade.
-9. Run post-run attribution.
-10. Run failure attribution.
-11. Run recursive-analysis and lookahead-analysis for candidates.
-12. Run walk-forward validation.
-13. Run fee/slippage/funding stress through the promotion/family gate.
-14. Run family risk gate.
-15. Run promotion gate.
-16. Update strategy lineage, research memory, consolidation, dashboard, and registry.
+9. Run event-to-Freqtrade execution alignment when an event definition exists.
+10. Run post-run attribution.
+11. Run failure attribution.
+12. Run recursive-analysis and lookahead-analysis for candidates.
+13. Run walk-forward validation.
+14. Run fee/slippage/funding stress through the promotion/family gate.
+15. Run family risk gate.
+16. Run promotion gate.
+17. Update strategy lineage, research memory, consolidation, dashboard, and registry.
 
 Family-risk and promotion gate results are research evidence even when they
 fail. A failed gate must still rebuild lineage, research memory, and
@@ -78,6 +79,7 @@ user_data/strategy_research/start_manual_research.sh --knowledge-guided-hypothes
 user_data/strategy_research/start_manual_research.sh --factor-research
 user_data/strategy_research/start_manual_research.sh --factor-to-strategy
 user_data/strategy_research/start_manual_research.sh --event-study
+user_data/strategy_research/start_manual_research.sh --event-execution-alignment
 user_data/strategy_research/start_manual_research.sh --regime-windows
 user_data/strategy_research/start_manual_research.sh --agent-brain
 user_data/strategy_research/start_manual_research.sh --weekly-knowledge-update
