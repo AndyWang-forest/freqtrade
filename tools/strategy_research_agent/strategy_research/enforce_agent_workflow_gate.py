@@ -23,6 +23,7 @@ REQUIRED_GATES = [
     "factor_to_strategy_plan",
     "event_study_edge_check",
     "freqtrade_backtesting",
+    "event_execution_alignment",
     "post_run_attribution",
     "recursive_analysis",
     "lookahead_analysis",

@@ -15,7 +15,7 @@ PYTHON="${PYTHON:-./.venv/bin/python}"
 
 usage() {
   cat <<'EOF'
-Usage: user_data/strategy_research/start_manual_research.sh [--quick|--source-scout|--price-action-knowledge|--bilibili-transcripts|--knowledge-graph|--knowledge-guided-hypotheses|--factor-research|--factor-to-strategy|--event-study|--regime-windows|--agent-brain|--weekly-knowledge-update|--walk-forward|--promotion-gate|--family-risk-gate|--a1-external-permission|--dryrun-risk-preflight|--trade-behavior|--failure-attribution|--post-run-attribution|--mature-researcher|--mature-researcher-queue|--execute-mature-researcher|--strategy-lineage|--research-memory|--memory-guided-hypotheses|--memory-guided-strategies|--preflight-only] [--extra-agent-arg ARG ...]
+Usage: user_data/strategy_research/start_manual_research.sh [--quick|--source-scout|--price-action-knowledge|--bilibili-transcripts|--knowledge-graph|--knowledge-guided-hypotheses|--factor-research|--factor-to-strategy|--event-study|--event-execution-alignment|--regime-windows|--agent-brain|--weekly-knowledge-update|--walk-forward|--promotion-gate|--family-risk-gate|--a1-external-permission|--dryrun-risk-preflight|--trade-behavior|--failure-attribution|--post-run-attribution|--mature-researcher|--mature-researcher-queue|--execute-mature-researcher|--strategy-lineage|--research-memory|--memory-guided-hypotheses|--memory-guided-strategies|--preflight-only] [--extra-agent-arg ARG ...]
 
 Manual entrypoint for the research-only strategy agent.
 
@@ -34,6 +34,8 @@ Modes:
   --factor-to-strategy
                      Convert factor edge candidates into guarded event-study hypotheses; does not generate strategy classes directly.
   --event-study      Test measurable entry events before strategy generation.
+  --event-execution-alignment
+                     Compare event-study signals with actual Freqtrade trade execution.
   --regime-windows   Build data-derived BTC/ETH futures regime windows and quarantine legacy hardcoded regime inference.
   --agent-brain      Rebuild knowledge graph, research memory, knowledge/memory hypotheses, and consolidation policy.
   --weekly-knowledge-update
@@ -112,6 +114,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --event-study)
       mode="event_study"
+      shift
+      ;;
+    --event-execution-alignment)
+      mode="event_execution_alignment"
       shift
       ;;
     --regime-windows)
@@ -264,6 +270,11 @@ run_post_run_attribution() {
       echo "WARN: entry quality review unavailable; continuing post-run attribution with failure evidence."
     fi
   fi
+  if [[ -f user_data/strategy_research/event_execution_alignment.py ]]; then
+    if ! "$PYTHON" user_data/strategy_research/event_execution_alignment.py; then
+      echo "WARN: event-to-execution alignment unavailable; continuing post-run attribution with failure evidence."
+    fi
+  fi
   "$PYTHON" user_data/strategy_research/attribute_strategy_failures.py
   "$PYTHON" user_data/strategy_research/mature_researcher.py
   "$PYTHON" user_data/strategy_research/mature_researcher_queue.py
@@ -353,6 +364,11 @@ case "$mode" in
     echo "== Strategy Research Agent: event study edge check =="
     "$PYTHON" user_data/strategy_research/regime_window_builder.py --check-only
     "$PYTHON" user_data/strategy_research/run_event_study.py
+    "$PYTHON" user_data/strategy_research/run_research_agent.py --skip-backtests
+    ;;
+  event_execution_alignment)
+    echo "== Strategy Research Agent: event-to-execution alignment =="
+    "$PYTHON" user_data/strategy_research/event_execution_alignment.py ${extra_args[@]+"${extra_args[@]}"}
     "$PYTHON" user_data/strategy_research/run_research_agent.py --skip-backtests
     ;;
   agent_brain)

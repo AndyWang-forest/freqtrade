@@ -17,7 +17,7 @@ The current improvement is to integrate those existing parts into one stronger r
 3. Read the consolidation layer to enforce hard research boundaries and required validation gates.
 4. Convert knowledge-guided and memory-guided hypotheses into measurable event definitions.
 5. Run or read an event study before generating concrete strategy classes.
-6. Only events with forward-distribution evidence may pass into the existing self-iteration loop: isolated strategy generation, backtesting, post-run attribution, improvement planning, and promotion-gate review.
+6. Only events with forward-distribution evidence may pass into the existing self-iteration loop: isolated strategy generation, Freqtrade backtesting, event-to-execution alignment, post-run attribution, improvement planning, and promotion-gate review.
 
 ## Event Study Gate
 
@@ -31,6 +31,25 @@ Concrete strategy generation is not the first research step. The Agent must firs
 - fee/slippage sensitivity before any candidate promotion.
 
 If an event does not clear the edge gate, the Agent may only use it as a counterexample, redesign input, or negative-control experiment. It must not turn that event into another strategy class just because the knowledge card sounds plausible.
+
+## Event-To-Execution Alignment Gate
+
+Local pandas/event-study evidence is not enough to promote a strategy. After a
+Freqtrade backtest, the Agent must reconcile the event timestamps with actual
+Freqtrade trades whenever the strategy came from a measurable event definition.
+
+This gate must explain:
+
+- how many event-study signals became actual Freqtrade trades;
+- how many were blocked by startup candles, an already-open trade,
+  max-open-trades behavior, protections, or order/execution timing;
+- whether the executed events kept the event-study forward-return edge after
+  Freqtrade entries, exits, ROI, stoploss, time-stop, fees, and funding;
+- whether local event-study results should be treated as executable evidence,
+  clustered evidence, or redesign-only evidence.
+
+If event-study edge disappears after Freqtrade execution alignment, the result
+must not be promoted by only citing the local event-study table.
 
 ## Timeframe Contract
 
