@@ -17,6 +17,8 @@ from typing import Any
 import pandas as pd
 import talib.abstract as ta
 
+from pair_universe import pairs_for_scope
+
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DATA_ROOT = REPO_ROOT / "user_data/data/binance/futures"
@@ -215,7 +217,7 @@ def study_event(frame: pd.DataFrame, mask: pd.Series, event: str, pair: str, sid
     )
 
 
-def run_event_study(pairs: list[str], timeframe: str, min_samples: int) -> dict[str, Any]:
+def run_event_study(pairs: list[str], timeframe: str, min_samples: int, pair_scope: str) -> dict[str, Any]:
     results: list[EventResult] = []
     for pair in pairs:
         frame = add_indicators(load_pair(pair, timeframe))
@@ -225,6 +227,7 @@ def run_event_study(pairs: list[str], timeframe: str, min_samples: int) -> dict[
     return {
         "generated_at_utc": utc_stamp(),
         "timeframe": timeframe,
+        "pair_scope": pair_scope,
         "pairs": pairs,
         "min_samples": min_samples,
         "edge_gate": {
@@ -249,7 +252,9 @@ def write_markdown(payload: dict[str, Any]) -> None:
         "",
         f"- Generated UTC: `{payload['generated_at_utc']}`",
         f"- Timeframe: `{payload['timeframe']}`",
+        f"- Pair scope: `{payload['pair_scope']}`",
         f"- Pairs: `{', '.join(payload['pairs'])}`",
+        "- Extension pairs are research-generalization evidence only; they do not enter dry-run or registry without separate gates.",
         "",
         "| Event | Pair | Side | Samples | Win 6 | Mean Ret 6 | MFE/MAE 12 | Verdict | Notes |",
         "|---|---|---|---:|---:|---:|---:|---|---|",
@@ -266,7 +271,13 @@ def write_markdown(payload: dict[str, Any]) -> None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--pairs", nargs="+", default=["BTC/USDT:USDT", "ETH/USDT:USDT"])
+    parser.add_argument(
+        "--pair-scope",
+        choices=["core", "extension", "research_all"],
+        default="core",
+        help="Pair universe to evaluate when --pairs is not provided.",
+    )
+    parser.add_argument("--pairs", nargs="+", default=None, help="Explicit pair override.")
     parser.add_argument("--timeframe", default="5m")
     parser.add_argument("--min-samples", type=int, default=200)
     return parser.parse_args()
@@ -275,7 +286,9 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    payload = run_event_study(args.pairs, args.timeframe, args.min_samples)
+    pairs = args.pairs if args.pairs is not None else pairs_for_scope(args.pair_scope)
+    pair_scope = "explicit" if args.pairs is not None else args.pair_scope
+    payload = run_event_study(pairs, args.timeframe, args.min_samples, pair_scope)
     LATEST_JSON.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
     write_markdown(payload)
     print(f"Wrote {rel(LATEST_JSON)}")

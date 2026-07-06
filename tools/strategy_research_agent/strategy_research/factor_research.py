@@ -9,6 +9,7 @@ consume.
 
 from __future__ import annotations
 
+import argparse
 import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -17,13 +18,14 @@ from typing import Any
 
 import pandas as pd
 
+from pair_universe import pairs_for_scope
+
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 AGENT_ROOT = REPO_ROOT / "user_data/strategy_research"
 OUTPUT_DIR = AGENT_ROOT / "factors"
 LATEST_JSON = OUTPUT_DIR / "latest_factor_research.json"
 LATEST_MD = OUTPUT_DIR / "latest_factor_research.md"
-PAIRS = ["BTC/USDT:USDT", "ETH/USDT:USDT"]
 TIMEFRAMES = ["3m", "5m", "15m"]
 FEE_ROUND_TRIP = 0.001
 MIN_SAMPLE = 80
@@ -182,10 +184,11 @@ def evaluate_pair_timeframe(pair: str, timeframe: str) -> list[dict[str, Any]]:
     return rows
 
 
-def build_payload() -> dict[str, Any]:
+def build_payload(pair_scope: str) -> dict[str, Any]:
+    pairs = pairs_for_scope(pair_scope)
     evaluations: list[dict[str, Any]] = []
     audits: list[dict[str, Any]] = []
-    for pair in PAIRS:
+    for pair in pairs:
         for timeframe in TIMEFRAMES:
             path = pair_data_path(pair, timeframe)
             audit = {"pair": pair, "timeframe": timeframe, "path": rel(path), "exists": path.exists()}
@@ -209,8 +212,9 @@ def build_payload() -> dict[str, Any]:
         "generated_at_utc": now_utc(),
         "research_only": True,
         "market": "Binance USDT-M futures",
+        "pair_scope": pair_scope,
         "timeframes": TIMEFRAMES,
-        "pairs": PAIRS,
+        "pairs": pairs,
         "fee_round_trip": FEE_ROUND_TRIP,
         "min_sample": MIN_SAMPLE,
         "data_audit": audits,
@@ -230,6 +234,8 @@ def write_markdown(path: Path, payload: dict[str, Any]) -> None:
         "",
         f"- Generated UTC: `{payload['generated_at_utc']}`",
         f"- Market: `{payload['market']}`",
+        f"- Pair scope: `{payload['pair_scope']}`",
+        f"- Pairs: `{', '.join(payload['pairs'])}`",
         f"- Timeframes: `{', '.join(payload['timeframes'])}`",
         f"- Round-trip fee assumption: `{payload['fee_round_trip']}`",
         f"- Edge candidates: `{len(payload['edge_candidates'])}`",
@@ -271,14 +277,27 @@ def write_markdown(path: Path, payload: dict[str, Any]) -> None:
             "- This report is evidence for the same Strategy Agent, not a separate Agent.",
             "- Strategy synthesis may only consume rows with `verdict=edge_candidate`, unless the next run is explicitly a negative-control or redesign experiment.",
             "- This factor layer does not modify Freqtrade config, dry-run config, live config, or exchange credentials.",
+            "- Extension pairs are research-generalization evidence only; they do not enter dry-run or registry without separate gates.",
         ]
     )
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--pair-scope",
+        choices=["core", "extension", "research_all"],
+        default="core",
+        help="Pair universe to evaluate. Defaults to core BTC/ETH futures.",
+    )
+    return parser.parse_args()
+
+
 def main() -> None:
+    args = parse_args()
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    payload = build_payload()
+    payload = build_payload(args.pair_scope)
     timestamp = payload["generated_at_utc"]
     json_path = OUTPUT_DIR / f"factor_research_{timestamp}.json"
     md_path = OUTPUT_DIR / f"factor_research_{timestamp}.md"
