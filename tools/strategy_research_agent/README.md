@@ -39,6 +39,18 @@ user_data/download_binance_um_1m.py
 
 It does not copy local market data, reports, dashboards, API keys, Freqtrade configs, or backtest result archives into git.
 
+## Pair Universe Policy
+
+The versioned Agent code keeps the default trading/research core on
+`BTC/USDT:USDT` and `ETH/USDT:USDT`. High-liquidity extension research can
+explicitly include `SOL/USDT:USDT`, `BNB/USDT:USDT`, and `XRP/USDT:USDT`
+through the runtime `--pair-scope` argument. This does not alter dry-run/live
+configs, registry candidates, or promotion status.
+
+Excluded classes stay out of the fixed research universe unless a later PR
+changes the policy: meme coins, low-liquidity altcoins, new listings, synthetic
+stock/commodity contracts, and unstable/non-crypto derivatives.
+
 ## Install Strategy Research Skills
 
 macOS/Linux:

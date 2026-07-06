@@ -61,6 +61,30 @@ For 50x Binance USDT-M futures research, concrete strategy entry must use short-
 
 If an event study is based on `1h` candles, the Agent may only use it as regime context or as a negative/control study until the entry trigger is translated to `3m`, `5m`, or `15m`.
 
+## Pair Universe Contract
+
+The default pair universe is the core Binance USDT-M futures set:
+
+- `BTC/USDT:USDT`
+- `ETH/USDT:USDT`
+
+High-liquidity extension pairs are available only when a run explicitly asks
+for `--pair-scope extension` or `--pair-scope research_all`:
+
+- `SOL/USDT:USDT`
+- `BNB/USDT:USDT`
+- `XRP/USDT:USDT`
+
+Extension pairs are research-generalization and event-validation evidence. They
+do not change dry-run/live config, registry candidates, or promotion status by
+implication. Any extension-pair strategy or registry entry must pass separate
+family-risk gate, promotion gate, dry-run risk preflight, and manual review.
+
+High liquidity is necessary but not sufficient for inclusion. The Agent must
+keep meme coins, low-liquidity altcoins, new listings, synthetic stock or
+commodity contracts, and unstable/non-crypto derivative contracts outside the
+fixed research universe unless a new PR changes this policy explicitly.
+
 ## Post-Run Attribution Gate
 
 Every strategy research round that runs backtests must end with post-run attribution before it updates research memory, mature researcher queues, or the next experiment plan.

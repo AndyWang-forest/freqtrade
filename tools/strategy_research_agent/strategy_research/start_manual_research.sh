@@ -68,6 +68,10 @@ Modes:
   --memory-guided-strategies
                      Generate isolated strategy variants from memory-guided hypotheses.
   --preflight-only  Only check environment, data, outputs, and safety flags.
+  --extra-agent-arg ARG
+                    Pass an argument to supported research modes. For pair
+                    expansion, use: --extra-agent-arg --pair-scope
+                    --extra-agent-arg research_all
 
 Safety:
   - Does not start Freqtrade live trading.
@@ -216,8 +220,15 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+pair_scope_for_preflight="core"
+for ((idx=0; idx<${#extra_args[@]}; idx++)); do
+  if [[ "${extra_args[$idx]}" == "--pair-scope" && $((idx + 1)) -lt ${#extra_args[@]} ]]; then
+    pair_scope_for_preflight="${extra_args[$((idx + 1))]}"
+  fi
+done
+
 echo "== Strategy Research Agent: preflight =="
-"$PYTHON" user_data/strategy_research/preflight_research_agent.py
+"$PYTHON" user_data/strategy_research/preflight_research_agent.py --pair-scope "$pair_scope_for_preflight"
 
 if [[ "$mode" == "regime_windows" ]]; then
   echo "== Strategy Research Agent: data-derived regime windows =="
@@ -346,7 +357,7 @@ case "$mode" in
     "$PYTHON" user_data/strategy_research/build_price_action_knowledge_layer.py
     "$PYTHON" user_data/strategy_research/build_price_action_knowledge_graph.py
     "$PYTHON" user_data/strategy_research/build_research_memory.py
-    "$PYTHON" user_data/strategy_research/factor_research.py
+    "$PYTHON" user_data/strategy_research/factor_research.py ${extra_args[@]+"${extra_args[@]}"}
     "$PYTHON" user_data/strategy_research/build_research_consolidation.py
     refresh_dashboard_if_available
     ;;
@@ -355,7 +366,7 @@ case "$mode" in
     "$PYTHON" user_data/strategy_research/build_price_action_knowledge_layer.py
     "$PYTHON" user_data/strategy_research/build_price_action_knowledge_graph.py
     "$PYTHON" user_data/strategy_research/build_research_memory.py
-    "$PYTHON" user_data/strategy_research/factor_research.py
+    "$PYTHON" user_data/strategy_research/factor_research.py ${extra_args[@]+"${extra_args[@]}"}
     "$PYTHON" user_data/strategy_research/factor_to_strategy_plan.py
     "$PYTHON" user_data/strategy_research/build_research_consolidation.py
     refresh_dashboard_if_available
@@ -363,7 +374,7 @@ case "$mode" in
   event_study)
     echo "== Strategy Research Agent: event study edge check =="
     "$PYTHON" user_data/strategy_research/regime_window_builder.py --check-only
-    "$PYTHON" user_data/strategy_research/run_event_study.py
+    "$PYTHON" user_data/strategy_research/run_event_study.py ${extra_args[@]+"${extra_args[@]}"}
     "$PYTHON" user_data/strategy_research/run_research_agent.py --skip-backtests
     ;;
   event_execution_alignment)

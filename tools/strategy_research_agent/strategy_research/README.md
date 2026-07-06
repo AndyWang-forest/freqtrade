@@ -22,6 +22,22 @@ that must survive a new machine belong here under `tools/strategy_research_agent
 - Background timeframes: `1h` may be used only as confirmation/context, not as primary entry.
 - Promotion is family-level: target-regime edge plus hostile-regime loss containment, not naked all-regime performance.
 
+## Pair Universe
+
+- Core futures pairs: `BTC/USDT:USDT`, `ETH/USDT:USDT`.
+- Research extension futures pairs: `SOL/USDT:USDT`, `BNB/USDT:USDT`, `XRP/USDT:USDT`.
+- Default research scope: `core`.
+- Extension research must be explicit with `--pair-scope extension` or `--pair-scope research_all`.
+- Extension pairs are for research generalization and event validation only. They do not modify dry-run/live configs, registry candidates, or promotion status.
+- Excluded classes remain out even when volume is high: meme coins, low-liquidity altcoins, new listings, synthetic stock/commodity contracts, and unstable/non-crypto derivative contracts.
+
+Example:
+
+```bash
+user_data/strategy_research/start_manual_research.sh --factor-research --extra-agent-arg --pair-scope --extra-agent-arg research_all
+user_data/strategy_research/start_manual_research.sh --event-study --extra-agent-arg --pair-scope --extra-agent-arg research_all
+```
+
 ## Required Preload
 
 Every strategy research entrypoint first runs:

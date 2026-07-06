@@ -10,6 +10,31 @@
     "user_data/strategy_research/knowledge_updates/latest_weekly_knowledge_update.json"
   ],
   "research_only": true,
+  "pair_universe_policy": {
+    "core_futures_pairs": [
+      "BTC/USDT:USDT",
+      "ETH/USDT:USDT"
+    ],
+    "research_extension_futures_pairs": [
+      "SOL/USDT:USDT",
+      "BNB/USDT:USDT",
+      "XRP/USDT:USDT"
+    ],
+    "default_pair_scope": "core",
+    "available_pair_scopes": [
+      "core",
+      "extension",
+      "research_all"
+    ],
+    "excluded_pair_classes": [
+      "meme coins",
+      "low-liquidity altcoins",
+      "new listings",
+      "synthetic stock or commodity contracts",
+      "unstable or non-crypto derivative contracts"
+    ],
+    "rule": "BTC/ETH remain the default core research and dry-run review universe. SOL/BNB/XRP are explicit high-liquidity research-extension pairs for generalization and event validation only; they do not enter registry, dry-run, or live review without separate family-risk, promotion, and dryrun-risk gates. High liquidity is necessary but not sufficient; excluded classes stay out even when volume is high."
+  },
   "factor_research_policy": {
     "same_agent_subflow": true,
     "runs_before_event_study": true,
@@ -19,9 +44,15 @@
       "5m",
       "15m"
     ],
+    "default_pair_scope": "core",
+    "available_pair_scopes": [
+      "core",
+      "extension",
+      "research_all"
+    ],
     "latest_factor_report": "user_data/strategy_research/factors/latest_factor_research.json",
     "latest_factor_strategy_plan": "user_data/strategy_research/factors/latest_factor_strategy_plan.json",
-    "rule": "Knowledge and memory propose research directions; factor research tests forward-return/MFE/MAE evidence; only factor edge candidates may become event-study hypotheses before strategy generation."
+    "rule": "Knowledge and memory propose research directions; factor research tests forward-return/MFE/MAE evidence on the explicit pair scope; only factor edge candidates may become event-study hypotheses before strategy generation."
   },
   "timeframe_policy": {
     "allowed_primary_entry_timeframes": [
@@ -132,6 +163,8 @@
     "No legacy regime-derived lesson may update durable memory, candidate promotion, or next strategy synthesis until it is relabeled against the data-derived regime manifest.",
     "No strategy reaches dry-run review without manual approval after promotion gate.",
     "No Agent-created PR, comment, review, issue, push, release, or status-changing operation may target the official upstream freqtrade/freqtrade repository.",
+    "BTC/ETH are the default core futures research pair universe; SOL/BNB/XRP require explicit pair-scope research_all or extension and never modify dry-run/live config by implication.",
+    "High-liquidity futures expansion must exclude meme coins, low-liquidity altcoins, new listings, synthetic stock/commodity contracts, and unstable non-crypto derivatives.",
     "No dry-run runtime state, private token, local trade database, or unsanitized full dashboard/report may be committed as live-review evidence.",
     "A dry-run that passes review may only enter the repository as a secret-free live-review candidate package: strategy source, candidate registry status, promotion/family-risk evidence summary, config template, checklist, and rollback/emergency-stop runbook.",
     "Live trading is outside this agent flow.",
@@ -161,6 +194,8 @@
     "Load knowledge graph context, research memory, and this consolidation policy before generating strategies.",
     "Load the data-derived regime manifest and regime quarantine before event-study, family-risk, promotion, agent-brain, or strategy-generation work.",
     "Treat legacy hardcoded regime windows as quarantined raw date-range evidence, not as active bull/range/bear/high-vol labels.",
+    "Use the versioned pair universe: core BTC/ETH by default, SOL/BNB/XRP only when explicitly requested as extension or research_all scope.",
+    "Do not treat high liquidity as sufficient for trading safety; excluded high-manipulation or unstable contract classes remain outside the research universe.",
     "Run factor research as the same Agent's front-door evidence layer before event-study planning or strategy synthesis.",
     "Convert only factor rows with sufficient sample, after-fee expectancy, win rate, and MFE/MAE evidence into factor-to-strategy event hypotheses.",
     "Before generating a concrete strategy class, define a measurable event and run or read event-study evidence for samples, forward returns, win rate, and MFE/MAE.",

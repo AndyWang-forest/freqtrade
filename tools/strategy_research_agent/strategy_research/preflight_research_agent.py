@@ -16,6 +16,7 @@ import pandas as pd
 
 from regime_window_builder import check_manifest_status
 from strategy_taxonomy import REQUIRED_TAXONOMY_IDS, STRATEGY_TAXONOMY
+from pair_universe import CORE_FUTURES_PAIRS, pairs_for_scope, validate_pair_universe
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -44,6 +45,12 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--json", action="store_true", help="Write machine-readable preflight output.")
     parser.add_argument("--strict", action="store_true", help="Treat warnings as failures.")
+    parser.add_argument(
+        "--pair-scope",
+        choices=["core", "extension", "research_all"],
+        default="core",
+        help="Pair universe data coverage to check. Defaults to core BTC/ETH futures.",
+    )
     return parser.parse_args()
 
 
@@ -238,6 +245,14 @@ def check_strategy_taxonomy(checks: list[Check]) -> None:
     )
 
 
+def check_pair_universe(checks: list[Check]) -> None:
+    issues = validate_pair_universe()
+    if issues:
+        add(checks, "pair_universe", "fail", "; ".join(f"{item.pair}: {item.reason}" for item in issues))
+        return
+    add(checks, "pair_universe", "ok", "Core BTC/ETH plus explicit SOL/BNB/XRP research extension only.")
+
+
 def check_registry(checks: list[Check]) -> dict[str, Any] | None:
     if not DEFAULT_REGISTRY.exists():
         add(checks, "strategy_registry", "fail", f"Missing {rel(DEFAULT_REGISTRY)}")
@@ -280,6 +295,26 @@ def check_data(checks: list[Check], registry: dict[str, Any] | None) -> None:
             add(checks, f"data:{pair}:{timeframe}", status, f"{len(dates)} rows, {first} -> {last}")
         except Exception as exc:  # noqa: BLE001 - preflight should surface local data problems.
             add(checks, f"data:{pair}:{timeframe}", "fail", f"{rel(path)}: {exc}")
+
+
+def check_pair_scope_data(checks: list[Check], pair_scope: str) -> None:
+    pairs = pairs_for_scope(pair_scope)
+    detail = "core data coverage" if pairs == CORE_FUTURES_PAIRS else f"{pair_scope} data coverage"
+    for pair in pairs:
+        for timeframe in ["3m", "5m", "15m"]:
+            path = pair_data_path(pair, timeframe)
+            if not path.exists():
+                add(checks, f"pair_scope_data:{pair}:{timeframe}", "fail", f"Missing {rel(path)} for {detail}.")
+                continue
+            try:
+                frame = pd.read_feather(path, columns=["date"])
+                dates = pd.to_datetime(frame["date"], utc=True).sort_values()
+                first = dates.iloc[0].isoformat() if len(dates) else "empty"
+                last = dates.iloc[-1].isoformat() if len(dates) else "empty"
+                status = "ok" if len(dates) >= 1000 else "warn"
+                add(checks, f"pair_scope_data:{pair}:{timeframe}", status, f"{len(dates)} rows, {first} -> {last}")
+            except Exception as exc:  # noqa: BLE001 - preflight should surface local data problems.
+                add(checks, f"pair_scope_data:{pair}:{timeframe}", "fail", f"{rel(path)}: {exc}")
 
 
 def check_outputs(checks: list[Check]) -> None:
@@ -339,8 +374,10 @@ def main() -> int:
     check_workflow_gate(checks)
     check_regime_manifest(checks)
     check_strategy_taxonomy(checks)
+    check_pair_universe(checks)
     registry = check_registry(checks)
     check_data(checks, registry)
+    check_pair_scope_data(checks, args.pair_scope)
     check_outputs(checks)
     check_git_cleanliness(checks)
 
