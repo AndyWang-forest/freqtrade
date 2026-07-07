@@ -34,6 +34,7 @@ REGIME_QUARANTINE_JSON = AGENT_ROOT / "regime_windows/regime_inference_quarantin
 
 
 REQUIRED_GATES = [
+    "current_market_state_family_router",
     "factor_research",
     "factor_to_strategy_plan",
     "event_study_edge_check",
@@ -279,6 +280,7 @@ def build_payload() -> dict[str, Any]:
             "No event-study edge may support promotion unless event-to-Freqtrade execution alignment explains whether the signal became actual trades under startup, order, max-open-trades, protection, and exit rules.",
             "No backtest round can feed the next experiment queue until post-run attribution has identified signal, timing, exit, cost, risk, regime, and sample-size failure modes.",
             "Regime windows must come from user_data/strategy_research/regime_windows/latest_regime_windows.json; legacy hardcoded bull_home/range_home/bear_home/high_vol_hostile windows are quarantined and cannot fuel strategy generation or promotion.",
+            "Every experiment round must run the current market-state family router before choosing which strategy family to research; no-trade is a valid router decision.",
             "No new fixed-50x futures strategy may use 1h or higher candles as its primary entry timeframe; use 3m/5m/15m for entry and 1h only for background confirmation.",
             "No strategy reaches dry-run review without manual approval after promotion gate.",
             "No Agent-created PR, comment, review, issue, push, release, or status-changing operation may target the official upstream freqtrade/freqtrade repository.",
@@ -294,6 +296,7 @@ def build_payload() -> dict[str, Any]:
             "The Agent has two iteration loops: internal self-iteration from backtest evidence and external knowledge iteration from the weekly knowledge update layer.",
             "Load knowledge graph context, research memory, and this consolidation policy before generating strategies.",
             "Load the data-derived regime manifest and regime inference quarantine before event-study planning, family-risk gates, promotion gates, or strategy generation.",
+            "Run the current market-state family router before factor research, event study, strategy generation, mature researcher queue execution, family-risk gates, or promotion gates; choose the next strategy family from the router output or default to no-trade.",
             "Do not treat legacy bull_home/range_home/bear_home/high_vol_hostile labels as market truth; old outputs are raw date-range backtests only until relabeled.",
             "Use the versioned pair universe: core BTC/ETH by default, SOL/BNB/XRP only when explicitly requested as extension or research_all scope.",
             "Do not treat high liquidity as sufficient for trading safety; excluded high-manipulation or unstable contract classes remain outside the research universe.",
@@ -325,6 +328,7 @@ def build_payload() -> dict[str, Any]:
             "regime_inference_quarantine": rel(REGIME_QUARANTINE_JSON) if regime_quarantine else None,
             "workflow_contract": rel(WORKFLOW_CONTRACT_MD) if WORKFLOW_CONTRACT_MD.exists() else None,
             "pair_universe": "tools/strategy_research_agent/strategy_research/pair_universe.py",
+            "current_market_router": "user_data/strategy_research/reports/latest_current_market_state_family_router.json",
             "factor_research": FACTOR_RESEARCH_POLICY["latest_factor_report"],
             "factor_strategy_plan": FACTOR_RESEARCH_POLICY["latest_factor_strategy_plan"],
         },

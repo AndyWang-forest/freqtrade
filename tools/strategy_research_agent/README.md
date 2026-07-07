@@ -93,6 +93,17 @@ Rebuild the Agent brain from the versioned knowledge cards, local research memor
 user_data/strategy_research/start_manual_research.sh --agent-brain
 ```
 
+Classify the current market and route the next research round to a compatible
+strategy family, or explicitly choose no-trade:
+
+```bash
+user_data/strategy_research/start_manual_research.sh --current-market-router
+```
+
+Research modes that generate or validate hypotheses run this router before
+their main work so strategy families are not evaluated in mismatched regimes by
+default.
+
 Weekly external knowledge update:
 
 ```bash
@@ -221,6 +232,7 @@ On Windows, use `README_WINDOWS.md` for the PowerShell cycle runner and Task Sch
 - No PR, comment, review, issue, or push operation may target the official upstream `freqtrade/freqtrade` repository. The official upstream may exist only as a read-only fetch remote; all writable GitHub work must target the user's fork or this local repository.
 - No generated reports, market data, or local credentials should be committed.
 - Generated strategies must come from knowledge graph, research memory, factor/event evidence, and explicit strategy-family contracts.
+- Every strategy research round must run the current market-state family router before choosing the next strategy family; no-trade is a valid router result.
 - Memory-guided variants must lock the current futures risk policy: isolated USDT-M futures, 50x cap, ROI `{"0":1.20,"180":1.50,"360":1.00}`, and stoploss `-0.60`.
 - Walk-forward validation must reject strategies that only work in one favorable calendar window.
 - Promotion gate only records readiness for manual dry-run review; it never starts dry-run/live trading.

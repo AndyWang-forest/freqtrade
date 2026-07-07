@@ -15,7 +15,7 @@ PYTHON="${PYTHON:-./.venv/bin/python}"
 
 usage() {
   cat <<'EOF'
-Usage: user_data/strategy_research/start_manual_research.sh [--quick|--source-scout|--price-action-knowledge|--bilibili-transcripts|--knowledge-graph|--knowledge-guided-hypotheses|--factor-research|--factor-to-strategy|--event-study|--event-execution-alignment|--regime-windows|--agent-brain|--weekly-knowledge-update|--walk-forward|--promotion-gate|--family-risk-gate|--a1-external-permission|--dryrun-risk-preflight|--trade-behavior|--failure-attribution|--post-run-attribution|--mature-researcher|--mature-researcher-queue|--execute-mature-researcher|--strategy-lineage|--research-memory|--memory-guided-hypotheses|--memory-guided-strategies|--preflight-only] [--extra-agent-arg ARG ...]
+Usage: user_data/strategy_research/start_manual_research.sh [--quick|--source-scout|--price-action-knowledge|--bilibili-transcripts|--knowledge-graph|--knowledge-guided-hypotheses|--factor-research|--factor-to-strategy|--event-study|--event-execution-alignment|--regime-windows|--current-market-router|--agent-brain|--weekly-knowledge-update|--walk-forward|--promotion-gate|--family-risk-gate|--a1-external-permission|--dryrun-risk-preflight|--trade-behavior|--failure-attribution|--post-run-attribution|--mature-researcher|--mature-researcher-queue|--execute-mature-researcher|--strategy-lineage|--research-memory|--memory-guided-hypotheses|--memory-guided-strategies|--preflight-only] [--extra-agent-arg ARG ...]
 
 Manual entrypoint for the research-only strategy agent.
 
@@ -37,6 +37,8 @@ Modes:
   --event-execution-alignment
                      Compare event-study signals with actual Freqtrade trade execution.
   --regime-windows   Build data-derived BTC/ETH futures regime windows and quarantine legacy hardcoded regime inference.
+  --current-market-router
+                     Classify the current market state and route research to a compatible strategy family or no-trade.
   --agent-brain      Rebuild knowledge graph, research memory, knowledge/memory hypotheses, and consolidation policy.
   --weekly-knowledge-update
                      Refresh external/source knowledge weekly layer, rebuild Agent brain, and write a weekly knowledge update report.
@@ -126,6 +128,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --regime-windows)
       mode="regime_windows"
+      shift
+      ;;
+    --current-market-router)
+      mode="current_market_router"
       shift
       ;;
     --agent-brain)
@@ -246,6 +252,17 @@ echo "== Strategy Research Agent: fixed workflow gate =="
 if [[ "$mode" == "preflight_only" ]]; then
   exit 0
 fi
+
+run_current_market_router() {
+  echo "== Strategy Research Agent: current market-state family router =="
+  "$PYTHON" user_data/strategy_research/current_market_state_family_router.py
+}
+
+case "$mode" in
+  current_market_router|agent_brain|factor_research|factor_to_strategy|event_study|event_execution_alignment|walk_forward|promotion_gate|family_risk_gate|a1_external_permission|post_run_attribution|mature_researcher|mature_researcher_queue|execute_mature_researcher|memory_guided_hypotheses|memory_guided_strategies)
+    run_current_market_router
+    ;;
+esac
 
 run_optional_script() {
   local script_path="$1"
@@ -381,6 +398,8 @@ case "$mode" in
     echo "== Strategy Research Agent: event-to-execution alignment =="
     "$PYTHON" user_data/strategy_research/event_execution_alignment.py ${extra_args[@]+"${extra_args[@]}"}
     "$PYTHON" user_data/strategy_research/run_research_agent.py --skip-backtests
+    ;;
+  current_market_router)
     ;;
   agent_brain)
     echo "== Strategy Research Agent: knowledge-memory-consolidation brain =="
@@ -530,6 +549,7 @@ Memory:     user_data/strategy_research/research_memory/latest_research_memory.m
 Factors:    user_data/strategy_research/factors/latest_factor_research.md
 FactorPlan: user_data/strategy_research/factors/latest_factor_strategy_plan.md
 EventStudy:user_data/strategy_research/event_studies/latest_event_study.md
+Router:    user_data/strategy_research/reports/latest_current_market_state_family_router.md
 MemPlan:    user_data/strategy_research/experiments/memory_guided_hypothesis_ledger.md
 MemStrat:   user_data/strategy_research/experiments/memory_guided_strategy_ledger.md
 Solidify:   user_data/strategy_research/consolidation/latest_research_consolidation.md
