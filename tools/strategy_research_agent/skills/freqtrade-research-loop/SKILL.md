@@ -34,12 +34,17 @@ Never:
    user_data/strategy_research/start_manual_research.sh --preflight-only
    ```
 
-2. **Load Agent brain before strategy generation**
+2. **Route current market state before choosing a strategy family**
+   ```bash
+   user_data/strategy_research/start_manual_research.sh --current-market-router
+   ```
+
+3. **Load Agent brain before strategy generation**
    ```bash
    user_data/strategy_research/start_manual_research.sh --agent-brain
    ```
 
-3. **Generate or refresh hypotheses**
+4. **Generate or refresh hypotheses**
    ```bash
    user_data/strategy_research/start_manual_research.sh --factor-research
    user_data/strategy_research/start_manual_research.sh --event-study
@@ -47,10 +52,10 @@ Never:
    user_data/strategy_research/start_manual_research.sh --memory-guided-strategies
    ```
 
-4. **Backtest with Freqtrade**
+5. **Backtest with Freqtrade**
    Use the repo agent or native Freqtrade. Always state timeframe, timerange, pair universe, fee, leverage, and config. For this workspace, default to Binance USDT-M futures, isolated margin, fixed 50x, ROI `{"0":1.20,"180":1.50,"360":1.00}`, stoploss `-0.60`, and primary entries on `3m`/`5m`/`15m`.
 
-5. **Diagnose and consolidate**
+6. **Diagnose and consolidate**
    ```bash
    user_data/strategy_research/start_manual_research.sh --post-run-attribution
    user_data/strategy_research/start_manual_research.sh --trade-behavior
@@ -58,13 +63,13 @@ Never:
    user_data/strategy_research/start_manual_research.sh --mature-researcher
    ```
 
-6. **Turn diagnosis into work**
+7. **Turn diagnosis into work**
    ```bash
    user_data/strategy_research/start_manual_research.sh --mature-researcher-queue
    user_data/strategy_research/start_manual_research.sh --execute-mature-researcher
    ```
 
-7. **Validate**
+8. **Validate**
    ```bash
    user_data/strategy_research/start_manual_research.sh --walk-forward
    user_data/strategy_research/start_manual_research.sh --family-risk-gate
@@ -72,7 +77,7 @@ Never:
    user_data/strategy_research/start_manual_research.sh --dryrun-risk-preflight
    ```
 
-8. **Refresh dashboard**
+9. **Refresh dashboard**
    ```bash
    user_data/strategy_research/start_manual_research.sh --quick
    ```

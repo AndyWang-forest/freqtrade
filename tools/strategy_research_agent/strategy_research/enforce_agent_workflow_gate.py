@@ -19,6 +19,7 @@ AGENT_ROOT = REPO_ROOT / "user_data/strategy_research"
 RUNTIME_RULES = AGENT_ROOT / "consolidation/agent_operating_rules.json"
 DEFAULT_RULES = AGENT_ROOT / "consolidation/agent_operating_rules.default.json"
 REQUIRED_GATES = [
+    "current_market_state_family_router",
     "factor_research",
     "factor_to_strategy_plan",
     "event_study_edge_check",
@@ -221,6 +222,11 @@ def validate_rules(path: Path, checks: list[GateCheck]) -> dict[str, Any]:
         add(checks, "factor_research_contract", "ok", "mandatory factor-before-strategy contract present")
     else:
         add(checks, "factor_research_contract", "fail", "missing mandatory factor-before-strategy contract")
+    has_router_rule = any("current market-state family router" in str(rule).lower() for rule in prompt_contract)
+    if has_router_rule:
+        add(checks, "current_market_router_contract", "ok", "mandatory current-market router contract present")
+    else:
+        add(checks, "current_market_router_contract", "fail", "missing mandatory current-market router contract")
     factor_policy = rules.get("factor_research_policy") or {}
     if factor_policy.get("same_agent_subflow") is not True:
         add(checks, "factor_research_policy:same_agent", "fail", "factor research must be same-agent subflow")

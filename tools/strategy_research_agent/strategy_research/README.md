@@ -60,22 +60,23 @@ The gate requires these fixed artifacts to be loadable:
 ## Current Workflow
 
 1. Preflight.
-2. Load knowledge graph, research memory, and consolidation rules.
-3. Run factor research on `3m`/`5m`/`15m` futures OHLCV.
-4. Convert factor candidates into event-study hypotheses.
-5. Run event study.
-6. Refresh data-derived regime windows and quarantine legacy regime interpretations.
-7. Generate memory-guided strategy variants only after the knowledge/memory layers are refreshed.
-8. Backtest through Freqtrade.
-9. Run event-to-Freqtrade execution alignment when an event definition exists.
-10. Run post-run attribution.
-11. Run failure attribution.
-12. Run recursive-analysis and lookahead-analysis for candidates.
-13. Run walk-forward validation.
-14. Run fee/slippage/funding stress through the promotion/family gate.
-15. Run family risk gate.
-16. Run promotion gate.
-17. Update strategy lineage, research memory, consolidation, dashboard, and registry.
+2. Run the current market-state family router and decide which strategy family is compatible, or choose no-trade.
+3. Load knowledge graph, research memory, and consolidation rules.
+4. Run factor research on `3m`/`5m`/`15m` futures OHLCV.
+5. Convert factor candidates into event-study hypotheses.
+6. Run event study.
+7. Refresh data-derived regime windows and quarantine legacy regime interpretations.
+8. Generate memory-guided strategy variants only after the knowledge/memory layers are refreshed.
+9. Backtest through Freqtrade.
+10. Run event-to-Freqtrade execution alignment when an event definition exists.
+11. Run post-run attribution.
+12. Run failure attribution.
+13. Run recursive-analysis and lookahead-analysis for candidates.
+14. Run walk-forward validation.
+15. Run fee/slippage/funding stress through the promotion/family gate.
+16. Run family risk gate.
+17. Run promotion gate.
+18. Update strategy lineage, research memory, consolidation, dashboard, and registry.
 
 Family-risk and promotion gate results are research evidence even when they
 fail. A failed gate must still rebuild lineage, research memory, and
@@ -97,6 +98,7 @@ user_data/strategy_research/start_manual_research.sh --factor-to-strategy
 user_data/strategy_research/start_manual_research.sh --event-study
 user_data/strategy_research/start_manual_research.sh --event-execution-alignment
 user_data/strategy_research/start_manual_research.sh --regime-windows
+user_data/strategy_research/start_manual_research.sh --current-market-router
 user_data/strategy_research/start_manual_research.sh --agent-brain
 user_data/strategy_research/start_manual_research.sh --weekly-knowledge-update
 user_data/strategy_research/start_manual_research.sh --walk-forward
@@ -150,6 +152,7 @@ still require trade-level artifacts before dry-run review.
 - Factor research: `user_data/strategy_research/factors/latest_factor_research.md`
 - Factor-to-strategy plan: `user_data/strategy_research/factors/latest_factor_strategy_plan.md`
 - Event study: `user_data/strategy_research/event_studies/latest_event_study.md`
+- Current market router: `user_data/strategy_research/reports/latest_current_market_state_family_router.md`
 - Regime windows: `user_data/strategy_research/regime_windows/latest_regime_windows.md`
 - Regime quarantine: `user_data/strategy_research/regime_windows/regime_inference_quarantine.md`
 - Walk-forward: `user_data/strategy_research/walk_forward_summaries/latest_walk_forward_summary.md`
@@ -184,6 +187,28 @@ Old manually named windows such as `bull_home`, `range_home`, `bear_home`, and
 date-range backtests, but they must not be used as active regime truth,
 promotion evidence, strategy-generation basis, or durable memory until relabeled
 against `latest_regime_windows.json`.
+
+## Current Market-State Family Router
+
+Before strategy-family experiments, refresh the router:
+
+```bash
+user_data/strategy_research/start_manual_research.sh --current-market-router
+```
+
+The router reads local Binance USDT-M BTC/ETH futures `5m` and `15m` data,
+computes recent returns, EMA structure, realized volatility, ATR%, BB width,
+trend efficiency, intraday green share, recent range position, and volume
+context, then classifies the current market as `bear_continuation`,
+`bear_relief_or_mixed`, `bull_trend`, `range_or_compression`,
+`high_vol_mixed`, or `mixed_unknown`.
+
+It maps that state to strategy-family decisions such as A1/D1 short watch,
+C2 future bull module, B range-only research, E compression research, or F
+defense/no-trade. `off_or_wait` and no-trade are valid outputs; they prevent
+the Agent from forcing A1/D1 experiments into incompatible regimes. The report
+is research-only and never changes registry, dry-run, live config, or strategy
+code.
 
 ## Dry-Run Runtime Safety
 
