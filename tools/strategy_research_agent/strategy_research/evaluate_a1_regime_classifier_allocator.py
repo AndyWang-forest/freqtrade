@@ -19,6 +19,8 @@ from typing import Any
 
 import pandas as pd
 
+from cost_model import PRIMARY_SCENARIO, STRESS_SCENARIO_NAME
+
 
 def find_repo_root() -> Path:
     for path in [Path.cwd(), *Path(__file__).resolve().parents]:
@@ -232,16 +234,16 @@ def summarize(masked: pd.DataFrame, all_rows: pd.DataFrame, router: str) -> dict
         )
 
     hostile = masked[
-        (masked["scenario"] == "stress_fee_20bps")
+        (masked["scenario"] == STRESS_SCENARIO_NAME)
         & masked["window"].str.contains("manifest_bull|manifest_range|manifest_high_vol", regex=True)
     ]
     hostile_by_window = hostile.groupby("window")["adjusted_account_profit_pct"].sum()
-    wf = masked[(masked["scenario"] == "high_fee_12bps") & masked["window"].str.startswith("wf_bear_")]
+    wf = masked[(masked["scenario"] == PRIMARY_SCENARIO) & masked["window"].str.startswith("wf_bear_")]
     wf_by_window = wf.groupby("window")["adjusted_account_profit_pct"].sum()
-    bear_high, bear_high_trades, bear_high_sl = metric("manifest_bear", "high_fee_12bps")
-    bear_stress, bear_stress_trades, bear_stress_sl = metric("manifest_bear", "stress_fee_20bps")
-    latest_high, latest_high_trades, _ = metric("^latest5$", "high_fee_12bps")
-    latest_stress, latest_stress_trades, _ = metric("^latest5$", "stress_fee_20bps")
+    bear_high, bear_high_trades, bear_high_sl = metric("manifest_bear", PRIMARY_SCENARIO)
+    bear_stress, bear_stress_trades, bear_stress_sl = metric("manifest_bear", STRESS_SCENARIO_NAME)
+    latest_high, latest_high_trades, _ = metric("^latest5$", PRIMARY_SCENARIO)
+    latest_stress, latest_stress_trades, _ = metric("^latest5$", STRESS_SCENARIO_NAME)
     return {
         "router": router,
         "bear_high_adj_pct": round(bear_high, 4),

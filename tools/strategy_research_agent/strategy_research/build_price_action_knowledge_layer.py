@@ -607,7 +607,7 @@ CARD_SPECS: list[dict[str, Any]] = [
         "source_terms": ["比特币", "BTC", "ETH"],
         "strategy_family": "crypto_risk",
         "knowledge": "形态 edge 如果很小，在合约里可能被手续费、滑点和资金费率吃掉。",
-        "hypothesis": "所有价格行为策略生成后先跑 base cost 和 stress cost 两档费用压力测试。",
+        "hypothesis": "所有价格行为策略生成后先跑 realistic cost 主判断和 stress cost 压力测试；stress 不应作为唯一淘汰门槛。",
         "features": ["fee_stress", "funding_window", "expected_move_atr"],
         "entry_rules": ["预期移动大于费用压力"],
         "exit_rules": ["资金费率/成本窗口不利时降频或禁开"],

@@ -22,6 +22,8 @@ from typing import Any
 
 import pandas as pd
 
+from cost_model import PRIMARY_SCENARIO
+
 
 def find_repo_root() -> Path:
     for path in [Path.cwd(), *Path(__file__).resolve().parents]:
@@ -96,7 +98,7 @@ def target_from_experiment_csv(target: dict[str, Any]) -> dict[str, Any]:
     csv_path = REPO_ROOT / target["experiment_csv"]
     strategy = target["strategy"]
     window = target["window"]
-    scenario = target.get("scenario", "high_fee_12bps")
+    scenario = target.get("scenario", PRIMARY_SCENARIO)
     with csv_path.open(encoding="utf-8") as fh:
         for row in csv.DictReader(fh):
             if row.get("strategy") == strategy and row.get("window") == window and row.get("scenario") == scenario:
@@ -391,7 +393,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--artifact")
     parser.add_argument("--experiment-csv")
     parser.add_argument("--window")
-    parser.add_argument("--scenario", default="high_fee_12bps")
+    parser.add_argument("--scenario", default=PRIMARY_SCENARIO)
     parser.add_argument("--side")
     parser.add_argument("--horizon", default="8h")
     parser.add_argument("--startup-candles", type=int, default=0)

@@ -29,6 +29,7 @@ Concrete strategy generation is not the first research step. The Agent must firs
 - MFE/MAE distribution;
 - pair, side, timeframe, and regime notes;
 - fee/slippage sensitivity before any candidate promotion.
+- realistic cost is the primary edge screen; stress cost is a safety check and must not be the sole reason to discard otherwise promising liquid-futures evidence.
 
 If an event does not clear the edge gate, the Agent may only use it as a counterexample, redesign input, or negative-control experiment. It must not turn that event into another strategy class just because the knowledge card sounds plausible.
 

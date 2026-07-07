@@ -68,7 +68,7 @@ BLOCKER_PLAYBOOK: dict[str, dict[str, Any]] = {
         "hypothesis": "当前规则在部分 regime 或 stress fee 下脆弱；需要状态过滤、退出提速或降杠杆。",
         "next_command": "user_data/strategy_research/start_manual_research.sh --family-risk-gate",
         "success_gate": "matrix verdict becomes robust_candidate with no stress-negative cluster.",
-        "risk_note": "不要只看 base fee；stress cost 不通过就不能晋级。",
+        "risk_note": "不要只看 base fee；realistic cost 是主判断，stress cost 是压力测试而不是唯一淘汰门槛。",
     },
     "cost_evidence_missing": {
         "priority": 60,
