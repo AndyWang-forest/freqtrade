@@ -16,6 +16,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from cost_model import DEFAULT_SCENARIOS, PRIMARY_SCENARIO, STRESS_SCENARIO_NAME
+
 
 def find_repo_root() -> Path:
     for path in [Path.cwd(), *Path(__file__).resolve().parents]:
@@ -55,10 +57,7 @@ STRATEGY_INFO = {
     },
 }
 STRATEGIES = list(STRATEGY_INFO)
-SCENARIOS = [
-    ("high_fee_12bps", 0.0015, 12.0),
-    ("stress_fee_20bps", 0.0020, 20.0),
-]
+SCENARIOS = DEFAULT_SCENARIOS
 WINDOWS = [
     ("main", "65d", "20260423-20260628"),
     ("main", "30d", "20260529-20260628"),
@@ -226,10 +225,10 @@ def rows_for(rows: list[Row], strategy: str, slice_name: str, scenario: str) -> 
 
 
 def verdict_for(rows: list[Row], strategy: str) -> tuple[str, list[str]]:
-    high_main = {row.window: row for row in rows_for(rows, strategy, "main", "high_fee_12bps")}
-    stress_main = rows_for(rows, strategy, "main", "stress_fee_20bps")
-    high_wf = rows_for(rows, strategy, "walk_forward", "high_fee_12bps")
-    stress_regime = rows_for(rows, strategy, "regime", "stress_fee_20bps")
+    high_main = {row.window: row for row in rows_for(rows, strategy, "main", PRIMARY_SCENARIO)}
+    stress_main = rows_for(rows, strategy, "main", STRESS_SCENARIO_NAME)
+    high_wf = rows_for(rows, strategy, "walk_forward", PRIMARY_SCENARIO)
+    stress_regime = rows_for(rows, strategy, "regime", STRESS_SCENARIO_NAME)
     reasons: list[str] = []
 
     if high_main.get("65d") is None or high_main["65d"].adjusted_profit_pct <= 30.0:
@@ -240,8 +239,8 @@ def verdict_for(rows: list[Row], strategy: str) -> tuple[str, list[str]]:
         reasons.append("latest5 lacks positive trades")
     if high_main.get("65d") is None or high_main["65d"].trades < 8:
         reasons.append("65d trade count below 8")
-    if any(row.adjusted_profit_pct <= 0 for row in stress_main):
-        reasons.append("stress-cost main window is non-positive")
+    if any(row.adjusted_profit_pct <= -10.0 for row in stress_main):
+        reasons.append("stress-cost main window drawdown is below -10%")
 
     wf_pos = sum(1 for row in high_wf if row.adjusted_profit_pct > 0)
     wf_worst = min((row.adjusted_profit_pct for row in high_wf), default=0.0)
@@ -275,6 +274,8 @@ def write_report(rows: list[Row], csv_path: Path) -> Path:
         "Scope: C/D trend pullback and breakout continuation families, BTC/ETH Binance USDT-M futures, isolated margin, fixed 50x, 15m entries, research-only.",
         "",
         "Risk policy fixed: ROI={0:1.20,180:1.50,360:1.00}, stoploss=-0.60. No dry-run/live config changed.",
+        "",
+        f"Cost policy: `{PRIMARY_SCENARIO}` is the primary edge screen; `{STRESS_SCENARIO_NAME}` is a stress/safety check, not the sole rejection gate.",
         "",
         "## Strategy Logic",
         "",

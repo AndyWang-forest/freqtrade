@@ -20,6 +20,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from cost_model import PRIMARY_SCENARIO, is_primary_scenario, scenario_label
+
 
 def find_repo_root() -> Path:
     for path in [Path.cwd(), *Path(__file__).resolve().parents]:
@@ -130,8 +132,7 @@ def infer_family(strategy: str, row: dict[str, Any]) -> str:
 
 
 def scenario_is_high_fee(row: dict[str, Any]) -> bool:
-    scenario = row.get("scenario")
-    return not scenario or scenario == "high_fee_12bps"
+    return is_primary_scenario(row.get("scenario"))
 
 
 def row_key(row: dict[str, Any]) -> tuple[str, str, str, str]:
@@ -139,7 +140,7 @@ def row_key(row: dict[str, Any]) -> tuple[str, str, str, str]:
         row.get("strategy", ""),
         row.get("slice", ""),
         row.get("window", ""),
-        row.get("scenario") or "high_fee_12bps",
+        scenario_label(row.get("scenario")),
     )
 
 
@@ -419,10 +420,12 @@ def build_payload(csv_path: Path, args: argparse.Namespace) -> dict[str, Any]:
         "scope": "all_strategy_families",
         "promotion_principle": (
             "Strategy families do not need to be all-regime holy grails.  Dry-run review requires "
-            "target-regime edge plus hostile-regime loss containment under family/portfolio circuit breakers."
+            "target-regime edge under the realistic-cost primary screen plus hostile-regime loss containment "
+            "under family/portfolio circuit breakers. Stress cost is a safety check, not the sole entry filter."
         ),
         "risk_controls": {
             "starting_balance": STARTING_BALANCE,
+            "primary_cost_scenario": PRIMARY_SCENARIO,
             "family_drawdown_pause_pct": args.drawdown_pause_pct,
             "consecutive_stop_loss_pause": args.consecutive_loss_pause,
             "hostile_guarded_worst_gate_pct": HOSTILE_GUARDED_WORST_GATE,

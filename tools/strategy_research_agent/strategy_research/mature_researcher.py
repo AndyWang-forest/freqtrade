@@ -235,8 +235,8 @@ def build_decision(
             confidence="medium",
             evidence=evidence,
             response_plan=[
-                "自动跑 base fee / high fee / slippage stress 三档。",
-                "降低交易频率或提高单笔目标，不通过 stress cost 就不晋级。",
+                "自动跑 realistic cost 主判断 + stress cost 压力测试。",
+                "降低交易频率或提高单笔目标；realistic cost 必须为正，stress cost 用来判断安全边际。",
                 "对 scalping 单独标注需要 maker/taker 成交假设。",
             ],
             next_experiments=[
@@ -245,7 +245,7 @@ def build_decision(
                 "min_edge_per_trade_filter",
             ],
             next_command="user_data/strategy_research/start_manual_research.sh --promotion-gate",
-            success_gate="Adjusted return remains positive after stress cost and funding estimate.",
+            success_gate="Adjusted return remains positive under realistic cost; stress cost does not show uncontrolled damage.",
             promotion_block="Do not promote cost-negative strategies even if base-fee backtest is positive.",
         )
 
@@ -347,7 +347,7 @@ def build_payload() -> dict[str, Any]:
         "global_policy": [
             "Never use leverage to rescue a negative-expectancy signal.",
             "Do not promote from a single sample, single regime, or base-fee-only result.",
-            "High-frequency strategies require explicit fee/slippage stress and trade-behavior diagnostics.",
+            "High-frequency strategies require explicit realistic fee/slippage evidence, stress checks, and trade-behavior diagnostics.",
             "Order-book, market-making, and microstructure ideas require data beyond OHLCV before live claims.",
         ],
         "source_artifacts": {

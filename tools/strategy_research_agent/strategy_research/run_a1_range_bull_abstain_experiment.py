@@ -16,6 +16,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from cost_model import PRIMARY_SCENARIO, STRESS_SCENARIO_NAME
+
 
 def find_repo_root() -> Path:
     for path in [Path.cwd(), *Path(__file__).resolve().parents]:
@@ -138,8 +140,8 @@ def write_csv(rows: list[Any], ts: str) -> Path:
 
 
 def verdict(rows: list[Any], strategy: str) -> tuple[str, list[str]]:
-    high = {row.window: row for row in rows if row.strategy == strategy and row.scenario == "high_fee_12bps"}
-    stress = {row.window: row for row in rows if row.strategy == strategy and row.scenario == "stress_fee_20bps"}
+    high = {row.window: row for row in rows if row.strategy == strategy and row.scenario == PRIMARY_SCENARIO}
+    stress = {row.window: row for row in rows if row.strategy == strategy and row.scenario == STRESS_SCENARIO_NAME}
     bear_high = next((row for key, row in high.items() if "manifest_bear" in key), None)
     bear_stress = next((row for key, row in stress.items() if "manifest_bear" in key), None)
     latest_high = high.get("latest5")
@@ -154,8 +156,8 @@ def verdict(rows: list[Any], strategy: str) -> tuple[str, list[str]]:
     reasons: list[str] = []
     if bear_high is None or bear_high.adjusted_profit_pct <= 30:
         reasons.append("home bear high-fee adjusted profit <= 30%")
-    if bear_stress is None or bear_stress.adjusted_profit_pct <= 30:
-        reasons.append("home bear stress adjusted profit <= 30%")
+    if bear_stress is None or bear_stress.adjusted_profit_pct <= -10:
+        reasons.append("home bear stress adjusted profit <= -10%")
     if bear_high is None or bear_high.trades < 8:
         reasons.append("home bear sample below 8 trades")
     if latest_high is None or latest_high.trades == 0 or latest_high.adjusted_profit_pct <= 0:
@@ -184,6 +186,8 @@ def write_report(rows: list[Any], csv_path: Path, ts: str, manifest: dict[str, A
         "Fixed contract: Binance USDT-M futures, isolated margin, 50x, ROI={0:1.20,180:1.50,360:1.00}, stoploss=-0.60, 15m entry timeframe.",
         "",
         "Regime source: data-derived `latest_regime_windows.json`; no legacy hardcoded bull/range/bear/high-vol windows.",
+        "",
+        f"Cost policy: `{PRIMARY_SCENARIO}` is the primary edge screen; `{STRESS_SCENARIO_NAME}` is stress evidence and should not be used as the only rejection filter.",
         "",
         "## Manifest Windows",
         "",
