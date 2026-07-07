@@ -91,6 +91,14 @@ if [[ -f "$SOURCE_ROOT/download_binance_um_1m.py" ]]; then
   cp "$SOURCE_ROOT/download_binance_um_1m.py" "$ROOT/user_data/download_binance_um_1m.py"
 fi
 
+if [[ -d "$SOURCE_ROOT/offline_exchange" ]]; then
+  mkdir -p "$ROOT/user_data/offline_exchange"
+  rsync -a \
+    --exclude '__pycache__' \
+    "$SOURCE_ROOT/offline_exchange/" \
+    "$ROOT/user_data/offline_exchange/"
+fi
+
 for executable in \
   "$ROOT/user_data/strategy_research/run_daily_research.sh" \
   "$ROOT/user_data/strategy_research/run_weekly_knowledge_update.sh" \

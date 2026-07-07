@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -253,6 +254,48 @@ def check_pair_universe(checks: list[Check]) -> None:
     add(checks, "pair_universe", "ok", "Core BTC/ETH plus explicit SOL/BNB/XRP research extension only.")
 
 
+def check_offline_exchange_pair_universe(checks: list[Check]) -> None:
+    offline_path = REPO_ROOT / "user_data/offline_exchange"
+    shim_path = offline_path / "sitecustomize.py"
+    if not shim_path.exists():
+        add(checks, "offline_exchange_pair_universe", "fail", f"Missing {rel(shim_path)}")
+        return
+
+    expected = set(pairs_for_scope("research_all"))
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(offline_path) if not env.get("PYTHONPATH") else f"{offline_path}{os.pathsep}{env['PYTHONPATH']}"
+    script = """
+import json
+import ccxt
+
+exchange = ccxt.binance({"options": {"defaultType": "future"}})
+symbols = sorted(m["symbol"] for m in exchange.fetch_markets() if m.get("swap"))
+print(json.dumps(symbols))
+"""
+    completed = subprocess.run(
+        [str(REPO_ROOT / ".venv/bin/python"), "-c", script],
+        cwd=REPO_ROOT,
+        env=env,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        check=False,
+    )
+    if completed.returncode != 0:
+        add(checks, "offline_exchange_pair_universe", "fail", completed.stdout[-1000:].strip())
+        return
+    try:
+        symbols = set(json.loads(completed.stdout))
+    except json.JSONDecodeError as exc:
+        add(checks, "offline_exchange_pair_universe", "fail", f"Invalid offline exchange output: {exc}")
+        return
+    missing = sorted(expected - symbols)
+    if missing:
+        add(checks, "offline_exchange_pair_universe", "fail", "Missing futures markets: " + ", ".join(missing))
+        return
+    add(checks, "offline_exchange_pair_universe", "ok", "Offline futures markets cover research_all pair universe.")
+
+
 def check_registry(checks: list[Check]) -> dict[str, Any] | None:
     if not DEFAULT_REGISTRY.exists():
         add(checks, "strategy_registry", "fail", f"Missing {rel(DEFAULT_REGISTRY)}")
@@ -375,6 +418,7 @@ def main() -> int:
     check_regime_manifest(checks)
     check_strategy_taxonomy(checks)
     check_pair_universe(checks)
+    check_offline_exchange_pair_universe(checks)
     registry = check_registry(checks)
     check_data(checks, registry)
     check_pair_scope_data(checks, args.pair_scope)

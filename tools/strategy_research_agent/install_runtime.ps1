@@ -7,6 +7,8 @@ $SourceStrategyRoot = Join-Path $AgentRoot "strategy_research"
 $TargetStrategyRoot = Join-Path $RepoRoot "user_data\strategy_research"
 $SourceGeneratedStrategies = Join-Path $AgentRoot "strategies\research_generated"
 $TargetGeneratedStrategies = Join-Path $RepoRoot "user_data\strategies\research_generated"
+$SourceOfflineExchange = Join-Path $AgentRoot "offline_exchange"
+$TargetOfflineExchange = Join-Path $RepoRoot "user_data\offline_exchange"
 
 $ExcludedTopDirs = @(
     "__pycache__",
@@ -137,5 +139,14 @@ Ensure-Directory -Path $TargetGeneratedStrategies
 Copy-AgentTree -Source $SourceStrategyRoot -Destination $TargetStrategyRoot
 Copy-GeneratedStrategies -Source $SourceGeneratedStrategies -Destination $TargetGeneratedStrategies
 Copy-Item -LiteralPath (Join-Path $AgentRoot "download_binance_um_1m.py") -Destination (Join-Path $RepoRoot "user_data\download_binance_um_1m.py") -Force
+if (Test-Path -LiteralPath $SourceOfflineExchange) {
+    Ensure-Directory -Path $TargetOfflineExchange
+    Get-ChildItem -LiteralPath $SourceOfflineExchange -Force | ForEach-Object {
+        if ($_.Name -eq "__pycache__" -or $_.Extension -eq ".pyc") {
+            return
+        }
+        Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $TargetOfflineExchange $_.Name) -Recurse -Force
+    }
+}
 
 Write-Host "Installed strategy research agent runtime files into user_data/."
