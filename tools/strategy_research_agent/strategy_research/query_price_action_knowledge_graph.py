@@ -6,10 +6,12 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+
+from repo_paths import find_repo_root
 from typing import Any
 
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = find_repo_root()
 GRAPH_DIR = REPO_ROOT / "user_data/strategy_research/knowledge/graph"
 NODES_JSON = GRAPH_DIR / "nodes.json"
 EDGES_JSON = GRAPH_DIR / "edges.json"

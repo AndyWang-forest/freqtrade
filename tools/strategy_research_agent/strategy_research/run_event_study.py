@@ -18,9 +18,10 @@ import pandas as pd
 import talib.abstract as ta
 
 from pair_universe import pairs_for_scope
+from repo_paths import find_repo_root
 
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = find_repo_root()
 DATA_ROOT = REPO_ROOT / "user_data/data/binance/futures"
 OUTPUT_DIR = REPO_ROOT / "user_data/strategy_research/event_studies"
 LATEST_JSON = OUTPUT_DIR / "latest_event_study.json"
@@ -60,6 +61,12 @@ def rel(path: Path) -> str:
 
 def pair_to_stem(pair: str) -> str:
     return pair.replace("/", "_").replace(":", "_")
+
+
+def output_stem(payload: dict[str, Any]) -> str:
+    scope = str(payload["pair_scope"]).replace("/", "_").replace(":", "_")
+    timeframe = str(payload["timeframe"]).replace("/", "_").replace(":", "_")
+    return f"event_study_{payload['generated_at_utc']}_{timeframe}_{scope}"
 
 
 def load_pair(pair: str, timeframe: str) -> pd.DataFrame:
@@ -246,7 +253,7 @@ def fmt_pct(value: float | None) -> str:
     return f"{value * 100:.3f}%"
 
 
-def write_markdown(payload: dict[str, Any]) -> None:
+def write_markdown(payload: dict[str, Any], path: Path) -> None:
     lines = [
         "# Event Study Report",
         "",
@@ -266,7 +273,7 @@ def write_markdown(payload: dict[str, Any]) -> None:
             f"{fmt_pct(row['win_rate_6'])} | {fmt_pct(row['mean_ret_6'])} | {ratio} | "
             f"{row['verdict']} | {row['notes']} |"
         )
-    LATEST_MD.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def parse_args() -> argparse.Namespace:
@@ -289,8 +296,15 @@ def main() -> None:
     pairs = args.pairs if args.pairs is not None else pairs_for_scope(args.pair_scope)
     pair_scope = "explicit" if args.pairs is not None else args.pair_scope
     payload = run_event_study(pairs, args.timeframe, args.min_samples, pair_scope)
-    LATEST_JSON.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
-    write_markdown(payload)
+    json_path = OUTPUT_DIR / f"{output_stem(payload)}.json"
+    md_path = OUTPUT_DIR / f"{output_stem(payload)}.md"
+    rendered_json = json.dumps(payload, indent=2, ensure_ascii=False)
+    json_path.write_text(rendered_json, encoding="utf-8")
+    LATEST_JSON.write_text(rendered_json, encoding="utf-8")
+    write_markdown(payload, md_path)
+    LATEST_MD.write_text(md_path.read_text(encoding="utf-8"), encoding="utf-8")
+    print(f"Wrote {rel(json_path)}")
+    print(f"Wrote {rel(md_path)}")
     print(f"Wrote {rel(LATEST_JSON)}")
     print(f"Wrote {rel(LATEST_MD)}")
 

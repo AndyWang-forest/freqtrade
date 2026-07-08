@@ -7,10 +7,12 @@ import argparse
 import json
 import re
 from pathlib import Path
+
+from repo_paths import find_repo_root
 from typing import Any
 
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = find_repo_root()
 KNOWLEDGE_ROOT = REPO_ROOT / "user_data/strategy_research/knowledge"
 CARDS_DIR = KNOWLEDGE_ROOT / "knowledge_cards"
 

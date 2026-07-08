@@ -11,6 +11,8 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+
+from repo_paths import find_repo_root
 from typing import Any
 
 import pandas as pd
@@ -20,7 +22,7 @@ from strategy_taxonomy import REQUIRED_TAXONOMY_IDS, STRATEGY_TAXONOMY
 from pair_universe import CORE_FUTURES_PAIRS, pairs_for_scope, validate_pair_universe
 
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = find_repo_root()
 AGENT_ROOT = REPO_ROOT / "user_data/strategy_research"
 DEFAULT_CONFIG = AGENT_ROOT / "agent_config.json"
 DEFAULT_REGISTRY = AGENT_ROOT / "strategy_registry.json"

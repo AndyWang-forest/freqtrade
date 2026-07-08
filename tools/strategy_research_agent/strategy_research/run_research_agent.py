@@ -17,6 +17,8 @@ import subprocess
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+
+from repo_paths import find_repo_root
 from typing import Any
 
 import pandas as pd
@@ -24,7 +26,7 @@ import pandas as pd
 from run_strategy_research import BacktestMetrics, classify, metrics_to_dict, parse_metrics
 
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = find_repo_root()
 AGENT_ROOT = REPO_ROOT / "user_data/strategy_research"
 DEFAULT_CONFIG = AGENT_ROOT / "agent_config.json"
 DEFAULT_REGISTRY = AGENT_ROOT / "strategy_registry.json"

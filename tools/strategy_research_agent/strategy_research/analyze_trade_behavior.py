@@ -10,11 +10,13 @@ from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+
+from repo_paths import find_repo_root
 from statistics import median
 from typing import Any
 
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = find_repo_root()
 AGENT_ROOT = REPO_ROOT / "user_data/strategy_research"
 COST_ESTIMATE = AGENT_ROOT / "cost_adjustments/latest_trade_cost_estimate.json"
 REPORT_DIR = AGENT_ROOT / "trade_behavior"

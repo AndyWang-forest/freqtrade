@@ -6,12 +6,14 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 from pathlib import Path
+
+from repo_paths import find_repo_root
 from typing import Any
 
 from strategy_taxonomy import classify_strategy_family, family_contract, taxonomy_summary
 
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = find_repo_root()
 AGENT_ROOT = REPO_ROOT / "user_data/strategy_research"
 OUTPUT_JSON = AGENT_ROOT / "experiments/memory_guided_hypothesis_plan.json"
 OUTPUT_MD = AGENT_ROOT / "experiments/memory_guided_hypothesis_ledger.md"
