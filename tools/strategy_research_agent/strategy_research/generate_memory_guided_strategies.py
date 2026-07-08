@@ -8,10 +8,12 @@ import json
 import re
 from datetime import datetime, timezone
 from pathlib import Path
+
+from repo_paths import find_repo_root
 from typing import Any
 
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = find_repo_root()
 AGENT_ROOT = REPO_ROOT / "user_data/strategy_research"
 PLAN_PATH = AGENT_ROOT / "experiments/memory_guided_hypothesis_plan.json"
 GENERATED_DIR = REPO_ROOT / "user_data/strategies/research_generated"

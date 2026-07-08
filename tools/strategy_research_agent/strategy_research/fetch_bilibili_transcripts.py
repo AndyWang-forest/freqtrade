@@ -14,12 +14,14 @@ import re
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
+
+from repo_paths import find_repo_root
 from typing import Any
 
 from yt_dlp.cookies import extract_cookies_from_browser
 
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = find_repo_root()
 KNOWLEDGE_ROOT = REPO_ROOT / "user_data/strategy_research/knowledge"
 BILIBILI_ROOT = KNOWLEDGE_ROOT / "raw_sources/bilibili"
 MANIFEST = BILIBILI_ROOT / "bilibili_price_action_course_manifest.json"

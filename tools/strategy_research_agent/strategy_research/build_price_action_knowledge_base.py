@@ -18,10 +18,12 @@ import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
+
+from repo_paths import find_repo_root
 from typing import Any
 
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = find_repo_root()
 AGENT_ROOT = REPO_ROOT / "user_data/strategy_research"
 KNOWLEDGE_ROOT = AGENT_ROOT / "knowledge"
 RAW_SOURCES = KNOWLEDGE_ROOT / "raw_sources"

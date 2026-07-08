@@ -14,6 +14,8 @@ import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+
+from repo_paths import find_repo_root
 from typing import Any
 
 import pandas as pd
@@ -21,7 +23,7 @@ import pandas as pd
 from pair_universe import pairs_for_scope
 
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = find_repo_root()
 AGENT_ROOT = REPO_ROOT / "user_data/strategy_research"
 OUTPUT_DIR = AGENT_ROOT / "factors"
 LATEST_JSON = OUTPUT_DIR / "latest_factor_research.json"

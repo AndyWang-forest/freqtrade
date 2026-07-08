@@ -9,12 +9,14 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+
+from repo_paths import find_repo_root
 from typing import Any
 
 from regime_window_builder import check_manifest_status
 
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = find_repo_root()
 AGENT_ROOT = REPO_ROOT / "user_data/strategy_research"
 RUNTIME_RULES = AGENT_ROOT / "consolidation/agent_operating_rules.json"
 DEFAULT_RULES = AGENT_ROOT / "consolidation/agent_operating_rules.default.json"

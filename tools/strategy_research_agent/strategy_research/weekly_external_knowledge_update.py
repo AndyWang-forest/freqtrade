@@ -13,10 +13,12 @@ import json
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
+
+from repo_paths import find_repo_root
 from typing import Any
 
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = find_repo_root()
 AGENT_ROOT = REPO_ROOT / "user_data/strategy_research"
 UPDATE_DIR = AGENT_ROOT / "knowledge_updates"
 LATEST_JSON = UPDATE_DIR / "latest_weekly_knowledge_update.json"

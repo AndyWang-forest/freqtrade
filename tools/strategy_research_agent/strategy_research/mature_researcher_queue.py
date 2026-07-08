@@ -9,10 +9,12 @@ import subprocess
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+from repo_paths import find_repo_root
 from typing import Any
 
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = find_repo_root()
 AGENT_ROOT = REPO_ROOT / "user_data/strategy_research"
 DECISION_PATH = AGENT_ROOT / "mature_researcher/latest_researcher_decision.json"
 STRATEGY_REGISTRY_PATH = AGENT_ROOT / "strategy_registry.json"
