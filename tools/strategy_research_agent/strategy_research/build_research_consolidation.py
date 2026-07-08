@@ -69,6 +69,11 @@ FACTOR_RESEARCH_POLICY = {
     "latest_factor_strategy_plan": "user_data/strategy_research/factors/latest_factor_strategy_plan.json",
     "rule": "Knowledge and memory propose research directions; factor research tests forward-return/MFE/MAE evidence on the explicit pair scope; only factor edge candidates may become event-study hypotheses before strategy generation.",
 }
+EXTERNAL_BRAIN_POLICY = {
+    "required_knowledge_domains": ["price_action", "regime", "derivatives", "microstructure", "cross_asset", "execution"],
+    "required_minimum_data_requirements": ["ohlcv", "regime_manifest", "fee_model", "slippage_model"],
+    "rule": "Before strategy synthesis, the Agent must load price-action context plus market-structure context. Derivatives, microstructure, cross-asset, regime, and execution cards can propose hypotheses only after the required data coverage is verified or explicitly marked unavailable.",
+}
 PAIR_UNIVERSE_POLICY = {
     "core_futures_pairs": ["BTC/USDT:USDT", "ETH/USDT:USDT"],
     "research_extension_futures_pairs": ["SOL/USDT:USDT", "BNB/USDT:USDT", "XRP/USDT:USDT"],
@@ -186,6 +191,11 @@ def build_solidified_rules(memory: dict[str, Any], graph_context: dict[str, Any]
                 "type": "hard_boundary",
                 "rule": "Do not generate fixed-50x strategy classes directly from knowledge cards or memory without factor or event-study evidence, unless the run is explicitly labeled negative-control.",
             },
+            {
+                "source": "system_policy",
+                "type": "hard_boundary",
+                "rule": "Do not synthesize strategies from derivatives, microstructure, cross-asset, regime, or execution cards until required data coverage is verified; missing data downgrades the idea to research-only event study.",
+            },
         ]
     )
     return dedupe(rules)
@@ -263,7 +273,12 @@ def build_payload() -> dict[str, Any]:
     regime_windows = load_json(REGIME_WINDOWS_JSON)
     regime_quarantine = load_json(REGIME_QUARANTINE_JSON)
     required_checks = Counter()
+    knowledge_domains = Counter()
+    data_requirements = Counter()
     for card in graph_context.get("cards", []):
+        knowledge_domains[card.get("knowledge_domain", "price_action")] += 1
+        for requirement in card.get("data_requirements", []):
+            data_requirements[requirement] += 1
         for check in card.get("required_checks", []):
             required_checks[check] += 1
     gates = dedupe(REQUIRED_GATES + list(required_checks))
@@ -278,6 +293,7 @@ def build_payload() -> dict[str, Any]:
         "promotion_boundaries": [
             "No knowledge-derived hypothesis can enter candidate/watchlist pools before full evidence gates.",
             "No fixed-50x strategy class can be generated directly from external knowledge or memory; factor research must first test forward-return, MFE/MAE, sample size, and side-specific expectancy unless the run is explicitly labeled negative-control.",
+            "No market-structure card may become strategy code until its data requirements are checked; missing funding/OI/L2/basis/router data downgrades the idea to a research-only diagnostic or event study.",
             "No OHLCV or L2-inspired hypothesis can generate a strategy class before an event study shows edge_candidate, unless the run is explicitly labeled counterexample or negative-control.",
             "No event-study edge may support promotion unless event-to-Freqtrade execution alignment explains whether the signal became actual trades under startup, order, max-open-trades, protection, and exit rules.",
             "No backtest round can feed the next experiment queue until post-run attribution has identified signal, timing, exit, cost, risk, regime, and sample-size failure modes.",
@@ -297,6 +313,8 @@ def build_payload() -> dict[str, Any]:
             "The Agent already has materials, a knowledge graph, and a self-iteration loop; frame future work as deeper integration, not as building those from zero.",
             "The Agent has two iteration loops: internal self-iteration from backtest evidence and external knowledge iteration from the weekly knowledge update layer.",
             "Load knowledge graph context, research memory, and this consolidation policy before generating strategies.",
+            "Treat the knowledge graph as a multi-domain external brain: price action, regime, derivatives, microstructure, cross-asset, and execution domains must all be available before normal strategy research.",
+            "When a hypothesis uses funding, OI, liquidation, spread/slippage, L2/order-book, cross-asset lead-lag, or runtime execution concepts, verify required data coverage before strategy synthesis; otherwise keep it research-only.",
             "Load the data-derived regime manifest and regime inference quarantine before event-study planning, family-risk gates, promotion gates, or strategy generation.",
             "Run the current market-state family router before factor research, event study, strategy generation, mature researcher queue execution, family-risk gates, or promotion gates; choose the next strategy family from the router output or default to no-trade.",
             "Do not treat legacy bull_home/range_home/bear_home/high_vol_hostile labels as market truth; old outputs are raw date-range backtests only until relabeled.",
@@ -336,6 +354,8 @@ def build_payload() -> dict[str, Any]:
         },
         "observed_counts": {
             "active_knowledge_cards": graph_context.get("active_card_count", 0),
+            "knowledge_domains": dict(sorted(knowledge_domains.items())),
+            "data_requirements": dict(sorted(data_requirements.items())),
             "knowledge_hypotheses": knowledge_plan.get("hypothesis_count", 0),
             "memory_hypotheses": memory_plan.get("hypothesis_count", 0),
             "avoid_patterns": len(memory.get("avoid_patterns", [])),
@@ -362,6 +382,7 @@ def build_operating_rules(payload: dict[str, Any]) -> dict[str, Any]:
         "research_only": True,
         "timeframe_policy": TIMEFRAME_POLICY,
         "pair_universe_policy": PAIR_UNIVERSE_POLICY,
+        "external_brain_policy": EXTERNAL_BRAIN_POLICY,
         "factor_research_policy": FACTOR_RESEARCH_POLICY,
         "hard_boundaries": payload["promotion_boundaries"],
         "required_gates": payload["required_gates"],
@@ -380,11 +401,33 @@ def write_markdown(path: Path, payload: dict[str, Any]) -> None:
         f"- Solidified rules: `{payload['observed_counts']['solidified_rules']}`",
         f"- Quarantined legacy regime entries: `{payload['observed_counts'].get('quarantined_regime_inference_entries', 0)}`",
         "",
+        "## Knowledge Domains",
+        "",
+        "| Domain | Active Cards |",
+        "|---|---:|",
+    ]
+    for domain, count in payload["observed_counts"].get("knowledge_domains", {}).items():
+        lines.append(f"| {domain} | {count} |")
+    lines.extend(
+        [
+            "",
+            "## Data Requirements",
+            "",
+            "| Requirement | Active Cards |",
+            "|---|---:|",
+        ]
+    )
+    for requirement, count in payload["observed_counts"].get("data_requirements", {}).items():
+        lines.append(f"| {requirement} | {count} |")
+    lines.extend(
+        [
+            "",
         "## Allowed Research Families",
         "",
         "| Family | Active Cards |",
         "|---|---:|",
-    ]
+        ]
+    )
     for item in payload["allowed_research_families"]:
         lines.append("| {family} | {active_card_count} |".format(**item))
     lines.extend(["", "## Blocked Patterns", "", "| Pattern | Evidence | Allowed Use | Rule |", "|---|---:|---|---|"])

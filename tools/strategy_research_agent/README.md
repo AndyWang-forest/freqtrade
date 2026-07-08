@@ -116,6 +116,20 @@ This refreshes external/source knowledge, optionally refreshes Bilibili subtitle
 user_data/strategy_research/knowledge_updates/latest_weekly_knowledge_update.md
 ```
 
+The knowledge layer is not limited to price action. The versioned external brain
+must include these active domains before normal strategy research:
+
+- price action
+- regime routing
+- crypto derivatives structure such as funding, open interest, liquidation, and mark/index basis
+- market microstructure and execution cost such as spread, slippage, order book depth, and minimum edge
+- cross-asset lead-lag and common market-factor context
+- Freqtrade runtime execution hooks and config override checks
+
+Any hypothesis that uses non-OHLCV concepts must first verify the required data
+coverage. Missing funding/OI/L2/basis/router data keeps the idea in research-only
+event study or diagnostic mode; it cannot become strategy code by theory alone.
+
 Rebuild the Agent brain prerequisites:
 
 ```bash
@@ -232,6 +246,8 @@ On Windows, use `README_WINDOWS.md` for the PowerShell cycle runner and Task Sch
 - No PR, comment, review, issue, or push operation may target the official upstream `freqtrade/freqtrade` repository. The official upstream may exist only as a read-only fetch remote; all writable GitHub work must target the user's fork or this local repository.
 - No generated reports, market data, or local credentials should be committed.
 - Generated strategies must come from knowledge graph, research memory, factor/event evidence, and explicit strategy-family contracts.
+- The knowledge graph is multi-domain. Price-action ideas must be checked against regime, derivatives, microstructure, cross-asset, and execution-cost context when relevant.
+- Non-OHLCV requirements such as funding, OI, mark/index basis, spread/slippage, L2/order-book data, regime manifest, or runtime config dumps must be verified before strategy synthesis.
 - Every strategy research round must run the current market-state family router before choosing the next strategy family; no-trade is a valid router result.
 - Memory-guided variants must lock the current futures risk policy: isolated USDT-M futures, 50x cap, ROI `{"0":1.20,"180":1.50,"360":1.00}`, and stoploss `-0.60`.
 - Walk-forward validation must reject strategies that only work in one favorable calendar window.

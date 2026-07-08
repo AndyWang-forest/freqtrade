@@ -1071,6 +1071,14 @@ def not_applicable_regimes(spec: dict[str, Any]) -> list[str]:
 def build_cards(transcripts: list[dict[str, Any]]) -> list[dict[str, Any]]:
     CARDS_DIR.mkdir(parents=True, exist_ok=True)
     QUARANTINED_CARDS_DIR.mkdir(parents=True, exist_ok=True)
+    preserved_cards: list[dict[str, Any]] = []
+    for path in CARDS_DIR.glob("*.json"):
+        try:
+            existing = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            existing = {}
+        if existing.get("agent_use") or existing.get("version") == 1:
+            preserved_cards.append(existing)
     for path in CARDS_DIR.glob("*.json"):
         path.unlink()
     for path in QUARANTINED_CARDS_DIR.glob("*.json"):
@@ -1082,6 +1090,25 @@ def build_cards(transcripts: list[dict[str, Any]]) -> list[dict[str, Any]]:
             write_json(QUARANTINED_CARDS_DIR / f"{card['id']}.json", card)
             continue
         write_json(CARDS_DIR / f"{card['id']}.json", card)
+        active_cards.append(card)
+    active_ids = {card["id"] for card in active_cards}
+    for card in preserved_cards:
+        card_id = card.get("id")
+        if not card_id or card_id in active_ids:
+            continue
+        card.setdefault("category", "price_action")
+        card.setdefault("source_quality", {"level": "medium"})
+        card.setdefault("verification_status", {"quarantined": False, "required_checks": []})
+        card.setdefault("risk_notes", [])
+        card.setdefault("avoid_rules", [])
+        translation = card.setdefault("freqtrade_translation", {})
+        translation.setdefault("strategy_family", "price_action_research")
+        translation.setdefault("features", [])
+        translation.setdefault("entry_rules", [])
+        translation.setdefault("exit_rules", [])
+        translation.setdefault("applicable_regimes", [])
+        translation.setdefault("not_applicable_regimes", [])
+        write_json(CARDS_DIR / f"{card_id}.json", card)
         active_cards.append(card)
     return active_cards
 

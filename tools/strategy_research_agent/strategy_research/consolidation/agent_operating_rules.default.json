@@ -35,6 +35,23 @@
     ],
     "rule": "BTC/ETH remain the default core research and dry-run review universe. SOL/BNB/XRP are explicit high-liquidity research-extension pairs for generalization and event validation only; they do not enter registry, dry-run, or live review without separate family-risk, promotion, and dryrun-risk gates. High liquidity is necessary but not sufficient; excluded classes stay out even when volume is high."
   },
+  "external_brain_policy": {
+    "required_knowledge_domains": [
+      "price_action",
+      "regime",
+      "derivatives",
+      "microstructure",
+      "cross_asset",
+      "execution"
+    ],
+    "required_minimum_data_requirements": [
+      "ohlcv",
+      "regime_manifest",
+      "fee_model",
+      "slippage_model"
+    ],
+    "rule": "Before strategy synthesis, the Agent must load price-action context plus market-structure context. Derivatives, microstructure, cross-asset, regime, and execution cards can propose hypotheses only after the required data coverage is verified or explicitly marked unavailable."
+  },
   "factor_research_policy": {
     "same_agent_subflow": true,
     "runs_before_event_study": true,
@@ -153,6 +170,7 @@
   "hard_boundaries": [
     "No knowledge-derived hypothesis can enter candidate/watchlist pools before full evidence gates.",
     "No fixed-50x strategy class can be generated directly from external knowledge or memory; factor research must first test forward-return, MFE/MAE, sample size, and side-specific expectancy unless the run is explicitly labeled negative-control.",
+    "No market-structure card may become strategy code until its data requirements are checked; missing funding/OI/L2/basis/router data downgrades the idea to a research-only diagnostic or event study.",
     "No OHLCV or L2-inspired hypothesis can generate a strategy class before an event study shows edge_candidate, unless the run is explicitly labeled counterexample or negative-control.",
     "No backtest round can feed the next experiment queue until post-run attribution has identified signal, timing, exit, cost, risk, regime, and sample-size failure modes.",
     "No new fixed-50x futures strategy may use 1h or higher candles as its primary entry timeframe; use 3m/5m/15m for entry and 1h only for background confirmation.",
@@ -192,6 +210,8 @@
     "The Agent already has materials, a knowledge graph, and a self-iteration loop; frame future work as deeper integration, not as building those from zero.",
     "The Agent has two iteration loops: internal self-iteration from backtest evidence and external knowledge iteration from the weekly knowledge update layer.",
     "Load knowledge graph context, research memory, and this consolidation policy before generating strategies.",
+    "Treat the knowledge graph as a multi-domain external brain: price action, regime, derivatives, microstructure, cross-asset, and execution domains must all be available before normal strategy research.",
+    "When a hypothesis uses funding, OI, liquidation, spread/slippage, L2/order-book, cross-asset lead-lag, or runtime execution concepts, verify required data coverage before strategy synthesis; otherwise keep it research-only.",
     "Load the data-derived regime manifest and regime quarantine before event-study, family-risk, promotion, agent-brain, or strategy-generation work.",
     "Treat legacy hardcoded regime windows as quarantined raw date-range evidence, not as active bull/range/bear/high-vol labels.",
     "Use the versioned pair universe: core BTC/ETH by default, SOL/BNB/XRP only when explicitly requested as extension or research_all scope.",
