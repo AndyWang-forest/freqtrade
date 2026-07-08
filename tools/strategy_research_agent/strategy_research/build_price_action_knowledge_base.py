@@ -106,6 +106,46 @@ PUBLIC_WEB_SOURCES = [
         "kind": "crypto_web_article",
         "license": "public webpage snapshot for local research",
     },
+    {
+        "id": "binance_academy_funding_rates",
+        "title": "What Are Funding Rates in Crypto Markets?",
+        "url": "https://academy.binance.com/en/articles/what-are-funding-rates-in-crypto-markets",
+        "author": "Binance Academy",
+        "kind": "crypto_derivatives_article",
+        "license": "public webpage snapshot for local research",
+    },
+    {
+        "id": "binance_academy_liquidation",
+        "title": "What Is Liquidation in Crypto Trading?",
+        "url": "https://academy.binance.com/en/articles/what-is-liquidation-in-crypto-trading",
+        "author": "Binance Academy",
+        "kind": "crypto_derivatives_article",
+        "license": "public webpage snapshot for local research",
+    },
+    {
+        "id": "binance_academy_open_interest",
+        "title": "What Is Open Interest in Futures Trading?",
+        "url": "https://academy.binance.com/en/articles/what-is-open-interest-in-futures-trading",
+        "author": "Binance Academy",
+        "kind": "crypto_derivatives_article",
+        "license": "public webpage snapshot for local research",
+    },
+    {
+        "id": "binance_academy_order_book",
+        "title": "What Is an Order Book?",
+        "url": "https://academy.binance.com/en/articles/what-is-an-order-book",
+        "author": "Binance Academy",
+        "kind": "market_microstructure_article",
+        "license": "public webpage snapshot for local research",
+    },
+    {
+        "id": "binance_academy_bid_ask_spread",
+        "title": "What Is the Bid-Ask Spread and Slippage?",
+        "url": "https://academy.binance.com/en/articles/bid-ask-spread-and-slippage-explained",
+        "author": "Binance Academy",
+        "kind": "market_microstructure_article",
+        "license": "public webpage snapshot for local research",
+    },
 ]
 
 
@@ -221,6 +261,153 @@ STARTER_CARDS = [
             "avoid": ["把股票盘中形态不加验证地搬到50x合约"],
         },
         "risk_notes": ["如果裸信号收益接近0，高杠杆只会放大噪音和费用，不会创造 edge。"],
+    },
+    {
+        "id": "ms_derivatives_funding_bias_is_context_not_signal",
+        "title": "资金费率是拥挤度背景，不是单独入场信号",
+        "knowledge_domain": "derivatives",
+        "category": "crypto_derivatives",
+        "concepts": ["funding_rate", "crowding", "basis", "derivatives_context", "regime_router"],
+        "source_refs": ["binance_academy_funding_rates"],
+        "knowledge": "永续合约资金费率反映多空持仓成本和拥挤方向。极端 funding 可以解释反向挤压风险，但单独使用容易变成追拥挤交易。",
+        "strategy_hypothesis": "把 funding 作为策略族开关或风险降档变量：极端正 funding 下谨慎追多，极端负 funding 下谨慎追空；只有与价格结构、波动扩张和 BTC lead 同向时才允许入场。",
+        "freqtrade_translation": {
+            "strategy_family": "volatility_compression_directional_expansion",
+            "features": ["funding_rate_8h", "funding_zscore_7d", "funding_sign", "mark_index_basis", "price_momentum_confirm"],
+            "entry_rules": ["funding 不作为直接触发，只作为拥挤过滤", "方向信号必须由 3m/5m/15m 价格结构触发"],
+            "exit_rules": ["funding 极端反向扩大且价格未继续推动时降低持仓时间"],
+            "applicable_regimes": ["high_volatility_expansion", "trend_continuation"],
+            "not_applicable_regimes": ["range_chop"],
+        },
+        "risk_notes": ["funding 数据缺失时不得假定为0；报告必须标记 coverage。"],
+        "data_requirements": ["funding_rate", "mark_price", "index_price"],
+        "avoid_rules": ["不要把 funding 正负直接翻译成做多/做空。"],
+    },
+    {
+        "id": "ms_regime_router_is_strategy_family_selector",
+        "title": "Regime router 先决定策略族，不是事后解释标签",
+        "knowledge_domain": "regime",
+        "category": "regime_router",
+        "concepts": ["regime_router", "home_regime", "hostile_regime", "no_trade", "strategy_family"],
+        "source_refs": ["phemex_crypto_price_action", "investopedia_price_action_definition"],
+        "knowledge": "高杠杆合约策略不应被要求在所有行情里都赚钱。先用数据标注当前市场状态，再选择对应策略族；没有匹配策略族时，no-trade 是有效决策。",
+        "strategy_hypothesis": "每轮策略研究前先读取 regime manifest 和 current-market router，只在 home regime 内验证策略族 edge，在 hostile regime 内验证风控兜底和暂停机制。",
+        "freqtrade_translation": {
+            "strategy_family": "market_state_router",
+            "features": ["regime_label", "trend_score", "volatility_percentile", "range_score", "btc_eth_direction_agreement"],
+            "entry_rules": ["router 允许策略族后，策略自身仍必须出现 3m/5m/15m 入场触发", "router 输出 no-trade 时不生成新交易策略"],
+            "exit_rules": ["regime flip against family 时缩短持仓或暂停新开仓"],
+            "applicable_regimes": ["all_regimes"],
+            "not_applicable_regimes": [],
+        },
+        "risk_notes": ["旧手工 bull/range/bear/high_vol 标签不能作为新经验依据；必须挂到数据生成的 manifest 证据。"],
+        "data_requirements": ["regime_manifest", "ohlcv", "current_market_router"],
+        "avoid_rules": ["不要把策略在错误窗口亏损简单解释为策略无效；先确认窗口是否属于该策略族 home regime。"],
+    },
+    {
+        "id": "ms_open_interest_confirms_participation",
+        "title": "OI 用来判断突破是否有持仓参与",
+        "knowledge_domain": "derivatives",
+        "category": "crypto_derivatives",
+        "concepts": ["open_interest", "participation", "breakout_quality", "leverage_crowding"],
+        "source_refs": ["binance_academy_open_interest"],
+        "knowledge": "Open interest 增加说明新杠杆仓位进入市场，和价格方向结合后可区分新趋势参与、空头回补、或多头被动止损。",
+        "strategy_hypothesis": "突破/扩张策略必须区分价格移动是否伴随 OI 扩张。价格突破但 OI 不增，可能只是流动性缺口或回补，不应升级为强趋势信号。",
+        "freqtrade_translation": {
+            "strategy_family": "high_volatility_breakout_continuation",
+            "features": ["oi_change_1h", "oi_change_4h", "price_return_1h", "volume_ratio", "atr_expansion"],
+            "entry_rules": ["价格扩张 + OI 同向参与 + 下一根确认", "OI 缺失时只允许 research-only 降级实验"],
+            "exit_rules": ["OI 快速回落且价格未延续时 time-stop"],
+            "applicable_regimes": ["high_volatility_expansion", "trend_continuation"],
+            "not_applicable_regimes": ["low_volatility_range"],
+        },
+        "risk_notes": ["OI 是交易所级数据，覆盖不足时不能进入 promotion gate。"],
+        "data_requirements": ["open_interest", "volume", "ohlcv"],
+        "avoid_rules": ["不要把单根大K当作有参与的突破。"],
+    },
+    {
+        "id": "ms_liquidation_risk_turns_breakout_into_reversal",
+        "title": "清算区附近的突破可能是延续也可能是反转",
+        "knowledge_domain": "derivatives",
+        "category": "crypto_derivatives",
+        "concepts": ["liquidation", "stop_run", "forced_flow", "false_breakout", "risk_event"],
+        "source_refs": ["binance_academy_liquidation"],
+        "knowledge": "高杠杆市场中，价格穿过拥挤清算区会产生强制流。强制流可以推动延续，也可能在流动性吃完后快速反转。",
+        "strategy_hypothesis": "把清算/止损扫荡结构拆成两类事件：扫后继续放量收在区外做延续；扫后快速收回区间做失败突破反转。",
+        "freqtrade_translation": {
+            "strategy_family": "range_false_break_reversion",
+            "features": ["wick_outside_range", "close_back_inside_range", "volume_spike", "liquidation_proxy", "next_candle_confirm"],
+            "entry_rules": ["扫区间边界 + 收回 + 下一根确认才可反向", "扫后收在区外且 ATR 扩张才可顺势"],
+            "exit_rules": ["反向策略必须在 4h 内回到 box_mid，否则 time-stop"],
+            "applicable_regimes": ["range_chop", "high_volatility_reversal"],
+            "not_applicable_regimes": ["clean_trend_continuation"],
+        },
+        "risk_notes": ["没有真实清算数据时只能用 wick/volume/ATR proxy，结论必须标为 proxy。"],
+        "data_requirements": ["ohlcv", "liquidation_proxy_optional", "volume"],
+        "avoid_rules": ["不要在强趋势中机械做所有刺破反转。"],
+    },
+    {
+        "id": "ms_microstructure_spread_slippage_sets_minimum_edge",
+        "title": "盘口价差和滑点决定最小可交易 edge",
+        "knowledge_domain": "microstructure",
+        "category": "execution_cost",
+        "concepts": ["order_book", "spread", "slippage", "minimum_edge", "execution_quality"],
+        "source_refs": ["binance_academy_order_book", "binance_academy_bid_ask_spread"],
+        "knowledge": "短周期策略的可交易性先由价差、滑点、成交深度和订单类型决定。K线事件的平均收益如果接近成本，50x 只会放大成本噪音。",
+        "strategy_hypothesis": "每个 3m/5m/15m 策略族都必须先通过 realistic cost，再通过 stress cost；低于最小边际收益的事件不能写成 Freqtrade class。",
+        "freqtrade_translation": {
+            "strategy_family": "no_trade_capital_protection",
+            "features": ["spread_proxy", "volume_ratio", "atr_pct", "expected_move_vs_cost", "order_type_tag"],
+            "entry_rules": ["expected_move_vs_cost 必须大于阈值", "低波动低成交时 no-trade"],
+            "exit_rules": ["MFE 未覆盖成本时缩短持仓"],
+            "applicable_regimes": ["all_regimes"],
+            "not_applicable_regimes": [],
+        },
+        "risk_notes": ["没有 L2 时必须使用保守 slippage proxy；不要把 event study 裸收益当真实收益。"],
+        "data_requirements": ["ohlcv", "fee_model", "slippage_model", "optional_l2_order_book"],
+        "avoid_rules": ["不要为了增加交易数降低成本门槛。"],
+    },
+    {
+        "id": "ms_cross_asset_lead_lag_requires_event_alignment",
+        "title": "跨币种 lead-lag 必须验证事件对齐",
+        "knowledge_domain": "cross_asset",
+        "category": "cross_asset_structure",
+        "concepts": ["btc_lead", "eth_beta", "sol_beta", "lead_lag", "market_factor"],
+        "source_refs": ["phemex_crypto_price_action", "binance_academy_open_interest"],
+        "knowledge": "高流动性加密合约经常共享市场因子。BTC 的方向、波动和风险偏好会影响 ETH/SOL/BNB/XRP，但 lead-lag 不是固定常数。",
+        "strategy_hypothesis": "跨币种策略先做 event alignment：BTC/ETH 背景只作为许可层，目标币必须自己出现入场触发；禁止只因 BTC 动了就交易 alt。",
+        "freqtrade_translation": {
+            "strategy_family": "cross_asset_lead_lag",
+            "features": ["btc_ret_1h", "btc_volatility_state", "target_ret_15m", "target_beta_30d", "direction_agreement"],
+            "entry_rules": ["BTC/ETH 背景许可 + 目标币自身触发 + 下一根确认", "lead 信号必须在训练外窗口验证"],
+            "exit_rules": ["BTC lead 反向且目标币未延续时退出"],
+            "applicable_regimes": ["trend_continuation", "high_volatility_expansion"],
+            "not_applicable_regimes": ["range_chop"],
+        },
+        "risk_notes": ["跨币种扩展 pairs 只作为研究泛化证据，不自动进入 registry/dry-run。"],
+        "data_requirements": ["ohlcv_research_all", "pair_universe", "rolling_beta"],
+        "avoid_rules": ["不要把相关性当因果。"],
+    },
+    {
+        "id": "ms_execution_hooks_must_match_freqtrade_runtime",
+        "title": "风控必须落到 Freqtrade 正确钩子",
+        "knowledge_domain": "execution",
+        "category": "runtime_execution",
+        "concepts": ["freqtrade_hooks", "custom_exit", "protections", "runtime_override", "dryrun_preflight"],
+        "source_refs": ["phemex_crypto_price_action"],
+        "knowledge": "策略代码里的风控只有写进 Freqtrade 会调用的接口才会生效；配置层保护、策略层 custom_exit、订单层 stoploss_on_exchange 各自作用不同。",
+        "strategy_hypothesis": "每个进入 dry-run review 的策略必须先通过 runtime risk preflight，列出策略参数、配置覆盖、custom_exit 是否 callable、protections 是否按预期启用。",
+        "freqtrade_translation": {
+            "strategy_family": "no_trade_capital_protection",
+            "features": ["custom_exit_present", "leverage_method_returns_50", "effective_roi", "effective_stoploss", "protections_config"],
+            "entry_rules": ["策略生成前声明 runtime assumptions", "dry-run 前运行 dryrun_strategy_risk_preflight"],
+            "exit_rules": ["time-stop、peak-drawdown、stoploss guard 必须能被 Freqtrade 调用"],
+            "applicable_regimes": ["all_regimes"],
+            "not_applicable_regimes": [],
+        },
+        "risk_notes": ["配置覆盖策略字段时必须在报告里说明最终生效值。"],
+        "data_requirements": ["freqtrade_strategy_load", "effective_config_dump"],
+        "avoid_rules": ["不要写 Freqtrade 不会调用的伪风控函数。"],
     },
 ]
 
@@ -419,15 +606,49 @@ def write_cards() -> list[dict[str, Any]]:
     CARDS_DIR.mkdir(parents=True, exist_ok=True)
     cards = []
     for card in STARTER_CARDS:
+        translation = dict(card.get("freqtrade_translation") or {})
+        translation.setdefault("strategy_family", "market_state_router" if card.get("knowledge_domain") == "regime" else "price_action_research")
+        translation.setdefault("features", [])
+        translation.setdefault("entry_rules", [])
+        translation.setdefault("exit_rules", [])
+        translation.setdefault("applicable_regimes", [])
+        translation.setdefault("not_applicable_regimes", [])
         payload = {
             **card,
+            "freqtrade_translation": translation,
             "version": 1,
             "created_at_utc": now_utc(),
             "copyright_note": "Original local summary for strategy research. Not a verbatim excerpt.",
+            "category": card.get("category", "price_action"),
+            "knowledge_domain": card.get("knowledge_domain", "price_action"),
+            "data_requirements": card.get("data_requirements", ["ohlcv"]),
+            "source_quality": {
+                "level": "medium",
+                "usable_transcript_count": 0,
+                "web_source_count": len(card.get("source_refs", [])),
+                "book_source_count": 0,
+                "note": "Versioned starter card; source refs are bounded public metadata or user-approved local references.",
+            },
+            "verification_status": {
+                "state": "knowledge_only_requires_backtest",
+                "required_checks": [
+                    "required_data_coverage_check",
+                    "factor_research",
+                    "event_study_edge_check",
+                    "freqtrade_backtesting",
+                    "recursive_analysis",
+                    "lookahead_analysis",
+                    "regime_matrix",
+                    "fee_slippage_stress",
+                    "promotion_gate",
+                ],
+                "quarantined": False,
+            },
             "agent_use": {
                 "when_to_retrieve": card["concepts"],
                 "must_turn_into_testable_rule": True,
                 "must_backtest_before_candidate": True,
+                "must_verify_required_data": bool(card.get("data_requirements")),
             },
         }
         write_json(CARDS_DIR / f"{card['id']}.json", payload)
@@ -437,14 +658,21 @@ def write_cards() -> list[dict[str, Any]]:
 
 def build_index(cards: list[dict[str, Any]], bilibili: dict[str, Any], web_sources: list[dict[str, Any]], books: dict[str, Any]) -> dict[str, Any]:
     concept_index: dict[str, list[str]] = {}
+    domain_index: dict[str, list[str]] = {}
+    data_requirement_index: dict[str, list[str]] = {}
     for card in cards:
         for concept in card["concepts"]:
             concept_index.setdefault(concept, []).append(card["id"])
+        domain_index.setdefault(card.get("knowledge_domain", "price_action"), []).append(card["id"])
+        for requirement in card.get("data_requirements", ["ohlcv"]):
+            data_requirement_index.setdefault(requirement, []).append(card["id"])
     index = {
         "generated_at_utc": now_utc(),
         "knowledge_root": rel(KNOWLEDGE_ROOT),
         "card_count": len(cards),
         "concept_index": concept_index,
+        "domain_index": domain_index,
+        "data_requirement_index": data_requirement_index,
         "sources": {
             "bilibili": {
                 "title": bilibili.get("title"),
@@ -516,11 +744,35 @@ def write_report(index: dict[str, Any], bilibili: dict[str, Any], web_sources: l
     lines.extend(
         [
             "",
+            "## Knowledge Domains",
+            "",
+            "| Domain | Cards |",
+            "|---|---|",
+        ]
+    )
+    for domain, card_ids in sorted(index["domain_index"].items()):
+        lines.append(f"| {domain} | {', '.join(card_ids)} |")
+    lines.extend(
+        [
+            "",
+            "## Data Requirements",
+            "",
+            "| Requirement | Cards |",
+            "|---|---|",
+        ]
+    )
+    for requirement, card_ids in sorted(index["data_requirement_index"].items()):
+        lines.append(f"| {requirement} | {', '.join(card_ids)} |")
+    lines.extend(
+        [
+            "",
             "## Agent Usage",
             "",
             "1. Query cards before generating a strategy hypothesis.",
-            "2. Convert at most 1-3 retrieved concepts into testable Freqtrade rules.",
-            "3. Backtest and write the result into research memory before reusing the idea.",
+            "2. Retrieve both price-action and market-structure cards when a strategy family depends on futures mechanics.",
+            "3. Convert at most 1-3 retrieved concepts into testable Freqtrade rules.",
+            "4. Verify required data coverage before strategy synthesis; missing data downgrades the idea to research-only.",
+            "5. Backtest and write the result into research memory before reusing the idea.",
         ]
     )
     REPORT_MD.write_text("\n".join(lines) + "\n", encoding="utf-8")

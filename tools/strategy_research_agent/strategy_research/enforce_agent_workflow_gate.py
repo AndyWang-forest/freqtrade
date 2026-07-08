@@ -20,6 +20,21 @@ REPO_ROOT = find_repo_root()
 AGENT_ROOT = REPO_ROOT / "user_data/strategy_research"
 RUNTIME_RULES = AGENT_ROOT / "consolidation/agent_operating_rules.json"
 DEFAULT_RULES = AGENT_ROOT / "consolidation/agent_operating_rules.default.json"
+GRAPH_CONTEXT_JSON = AGENT_ROOT / "knowledge/graph/strategy_agent_graph_context.json"
+REQUIRED_KNOWLEDGE_DOMAINS = {
+    "price_action",
+    "regime",
+    "derivatives",
+    "microstructure",
+    "cross_asset",
+    "execution",
+}
+REQUIRED_DATA_REQUIREMENTS = {
+    "ohlcv",
+    "regime_manifest",
+    "fee_model",
+    "slippage_model",
+}
 REQUIRED_GATES = [
     "current_market_state_family_router",
     "factor_research",
@@ -143,6 +158,34 @@ def validate_official_upstream_write_guard(checks: list[GateCheck]) -> None:
         "ok",
         "no official freqtrade/freqtrade remote detected; PR/comment/push/review/issue operations remain forbidden",
     )
+
+
+def validate_knowledge_graph_context(checks: list[GateCheck]) -> None:
+    if not GRAPH_CONTEXT_JSON.exists():
+        add(checks, "knowledge_graph_context:domains", "fail", f"missing {rel(GRAPH_CONTEXT_JSON)}")
+        return
+    try:
+        graph_context = read_json(GRAPH_CONTEXT_JSON)
+    except json.JSONDecodeError as exc:
+        add(checks, "knowledge_graph_context:domains", "fail", f"invalid JSON: {exc}")
+        return
+    domains = set((graph_context.get("index") or {}).get("domain_to_cards") or {})
+    missing_domains = sorted(REQUIRED_KNOWLEDGE_DOMAINS - domains)
+    if missing_domains:
+        add(checks, "knowledge_graph_context:domains", "fail", "missing " + ", ".join(missing_domains))
+    else:
+        add(checks, "knowledge_graph_context:domains", "ok", "loaded " + ", ".join(sorted(REQUIRED_KNOWLEDGE_DOMAINS)))
+    requirements = set((graph_context.get("index") or {}).get("data_requirement_to_cards") or {})
+    missing_requirements = sorted(REQUIRED_DATA_REQUIREMENTS - requirements)
+    if missing_requirements:
+        add(checks, "knowledge_graph_context:data_requirements", "fail", "missing " + ", ".join(missing_requirements))
+    else:
+        add(
+            checks,
+            "knowledge_graph_context:data_requirements",
+            "ok",
+            "loaded minimum data requirements: " + ", ".join(sorted(REQUIRED_DATA_REQUIREMENTS)),
+        )
 
 
 def resolve_rules_path(checks: list[GateCheck]) -> Path | None:
@@ -292,6 +335,7 @@ def build_payload() -> dict[str, Any]:
     rules: dict[str, Any] = {}
     if rules_path:
         rules = validate_rules(rules_path, checks)
+    validate_knowledge_graph_context(checks)
     validate_official_upstream_write_guard(checks)
     failed = [check for check in checks if check.status == "fail"]
     return {

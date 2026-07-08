@@ -22,18 +22,31 @@ GRAPH_CONTEXT_JSON = AGENT_ROOT / "knowledge/graph/strategy_agent_graph_context.
 
 
 BLOCKER_TO_CONCEPTS = {
-    "weak_profit_factor": ["confirmation", "pullback", "actual_risk", "signal_score"],
-    "negative_or_missing_return": ["edge", "regime_router", "pullback", "invalidation"],
-    "loss_exit_quality": ["stoploss", "invalidation", "actual_risk", "timebox"],
-    "too_few_trades": ["signal_score", "condition_count", "entry_confirmation"],
-    "too_few_matrix_trades": ["market_cycle", "regime_router", "sessionless_market"],
-    "matrix_not_robust": ["market_cycle", "regime_router", "trend", "range"],
-    "fragile_matrix": ["market_cycle", "regime_router", "walk_forward"],
-    "negative_after_cost": ["fees", "slippage", "scalp", "funding"],
-    "stress_cost_failure": ["fees", "slippage", "microstructure"],
-    "cost_evidence_missing": ["fees", "funding", "fee_stress"],
+    "weak_profit_factor": ["confirmation", "pullback", "actual_risk", "signal_score", "minimum_edge"],
+    "negative_or_missing_return": ["edge", "regime_router", "pullback", "invalidation", "participation"],
+    "loss_exit_quality": ["stoploss", "invalidation", "actual_risk", "timebox", "forced_flow"],
+    "too_few_trades": ["signal_score", "condition_count", "entry_confirmation", "lead_lag"],
+    "too_few_matrix_trades": ["market_cycle", "regime_router", "sessionless_market", "market_factor"],
+    "matrix_not_robust": ["market_cycle", "regime_router", "trend", "range", "crowding"],
+    "fragile_matrix": ["market_cycle", "regime_router", "walk_forward", "btc_lead"],
+    "negative_after_cost": ["fees", "slippage", "scalp", "funding", "spread", "minimum_edge"],
+    "stress_cost_failure": ["fees", "slippage", "microstructure", "order_book", "spread"],
+    "cost_evidence_missing": ["fees", "funding", "funding_rate", "fee_stress"],
     "bias_checks_missing": ["review", "out_of_sample", "falsification"],
     "lookahead_or_recursive_unverified": ["review", "out_of_sample", "falsification"],
+}
+
+BLOCKER_TO_DOMAINS = {
+    "negative_after_cost": ["microstructure", "execution"],
+    "stress_cost_failure": ["microstructure", "execution"],
+    "cost_evidence_missing": ["derivatives", "microstructure"],
+    "matrix_not_robust": ["regime", "derivatives", "cross_asset"],
+    "fragile_matrix": ["regime", "cross_asset"],
+    "too_few_trades": ["cross_asset", "regime"],
+    "too_few_matrix_trades": ["regime", "cross_asset"],
+    "loss_exit_quality": ["execution", "derivatives"],
+    "weak_profit_factor": ["microstructure", "price_action"],
+    "negative_or_missing_return": ["derivatives", "cross_asset", "price_action"],
 }
 
 
@@ -130,12 +143,17 @@ def dedupe(values: list[Any]) -> list[Any]:
 
 def select_graph_cards(blocker: str, objective: str, graph_context: dict[str, Any], limit: int = 3) -> list[dict[str, Any]]:
     desired = set(BLOCKER_TO_CONCEPTS.get(blocker, []))
+    desired_domains = set(BLOCKER_TO_DOMAINS.get(blocker, []))
     text_terms = set((objective or "").lower().replace("/", " ").replace("_", " ").split())
     scored = []
     for card in graph_context.get("cards", []):
         haystack = json.dumps(card, ensure_ascii=False).lower()
         concepts = set(card.get("concepts", []))
         score = len(desired & concepts) * 6
+        if card.get("knowledge_domain") in desired_domains:
+            score += 6
+        if desired_domains and card.get("knowledge_domain") == "price_action":
+            score += 1
         score += sum(1 for term in desired if term and term.lower() in haystack)
         score += sum(1 for term in text_terms if len(term) > 3 and term in haystack)
         if card.get("source_quality") == "high":
@@ -154,7 +172,11 @@ def select_graph_cards(blocker: str, objective: str, graph_context: dict[str, An
         fallback = [
             card
             for card in graph_context.get("cards", [])
-            if card not in selected and card.get("category") in {"entry", "risk", "crypto_adaptation"}
+            if card not in selected
+            and (
+                card.get("category") in {"entry", "risk", "crypto_adaptation", "crypto_derivatives", "execution_cost"}
+                or card.get("knowledge_domain") in desired_domains
+            )
         ]
         selected.extend(fallback[: limit - len(selected)])
     return selected[:limit]
@@ -164,13 +186,22 @@ def knowledge_guidance(blocker: str, objective: str, graph_context: dict[str, An
     selected = select_graph_cards(blocker, objective, graph_context)
     return {
         "source_cards": [card.get("card_node") for card in selected if card.get("card_node")],
+        "knowledge_domains": dedupe([card.get("knowledge_domain", "price_action") for card in selected]),
+        "data_requirements": dedupe(sum((card.get("data_requirements", []) for card in selected), [])) or ["ohlcv"],
         "concepts": dedupe(sum((card.get("concepts", []) for card in selected), []))[:12],
         "entry_rules": dedupe(sum((card.get("entry_rules", []) for card in selected), []))[:5],
         "exit_rules": dedupe(sum((card.get("exit_rules", []) for card in selected), []))[:4],
         "risk_notes": dedupe(sum((card.get("risk_notes", []) for card in selected), []))[:5],
         "avoid_rules": dedupe(sum((card.get("avoid_rules", []) for card in selected), []))[:6],
         "required_checks": dedupe(sum((card.get("required_checks", []) for card in selected), []))
-        or ["freqtrade_backtesting", "recursive_analysis", "lookahead_analysis", "regime_matrix", "fee_slippage_stress"],
+        or [
+            "required_data_coverage_check",
+            "freqtrade_backtesting",
+            "recursive_analysis",
+            "lookahead_analysis",
+            "regime_matrix",
+            "fee_slippage_stress",
+        ],
     }
 
 
@@ -240,6 +271,7 @@ def build_experiment(hypotheses: list[dict[str, Any]]) -> dict[str, Any]:
             "This experiment file is a planning handoff, not a runnable generated-strategy registry.",
             "Concrete strategy code must be generated in an isolated research file before running Freqtrade backtesting.",
             "Every generated strategy must declare one canonical strategy family and regime contract first.",
+            "Every generated strategy must verify non-OHLCV data coverage before strategy synthesis.",
             "Attribution must be reported by strategy family as well as by strategy class.",
         ],
     }
@@ -261,6 +293,8 @@ def build_payload() -> dict[str, Any]:
             "strategy_lineage": rel(AGENT_ROOT / "strategy_library/latest_strategy_lineage.json") if lineage else None,
             "knowledge_graph_context": rel(GRAPH_CONTEXT_JSON) if graph_context else None,
             "strategy_taxonomy": "user_data/strategy_research/strategy_taxonomy.py",
+            "knowledge_graph_domain_index": graph_context.get("index", {}).get("domain_to_cards"),
+            "knowledge_graph_data_requirement_index": graph_context.get("index", {}).get("data_requirement_to_cards"),
         },
     }
 
@@ -287,6 +321,24 @@ def write_markdown(path: Path, payload: dict[str, Any]) -> None:
     lines.extend(
         [
             "",
+            "## Required Data Coverage",
+            "",
+            "| ID | Knowledge Domains | Data Requirements |",
+            "|---|---|---|",
+        ]
+    )
+    for item in payload["hypotheses"]:
+        guidance = item.get("knowledge_guidance") or {}
+        lines.append(
+            "| {hypothesis_id} | {domains} | {requirements} |".format(
+                hypothesis_id=item["hypothesis_id"],
+                domains=", ".join(guidance.get("knowledge_domains", [])),
+                requirements=", ".join(guidance.get("data_requirements", [])),
+            )
+        )
+    lines.extend(
+        [
+            "",
             "## Policy",
             "",
             "- This ledger plans strategy research; it does not create live-trading code.",
@@ -294,6 +346,8 @@ def write_markdown(path: Path, payload: dict[str, Any]) -> None:
             "- Every concrete variant must declare one canonical strategy family and regime contract before generation.",
             "- Every post-run attribution must aggregate by strategy family, not only by strategy class.",
             "- Every hypothesis inherits avoid rules from research memory to reduce repeated failure loops.",
+            "- Hypotheses must combine price-action memory with market-structure cards when funding, OI, liquidation, cross-asset, or execution-cost concepts are relevant.",
+            "- Non-OHLCV data requirements must be checked before strategy synthesis; missing data downgrades the idea to research-only event study.",
         ]
     )
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")

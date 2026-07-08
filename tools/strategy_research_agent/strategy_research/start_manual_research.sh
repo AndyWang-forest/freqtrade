@@ -238,6 +238,14 @@ pair_scope_args=(--pair-scope "$agent_pair_scope")
 echo "== Strategy Research Agent: preflight =="
 "$PYTHON" user_data/strategy_research/preflight_research_agent.py --pair-scope "$pair_scope_for_preflight"
 
+if [[ "$mode" == "agent_brain" ]]; then
+  echo "== Strategy Research Agent: bootstrap external brain graph =="
+  "$PYTHON" user_data/strategy_research/build_price_action_knowledge_base.py
+  "$PYTHON" user_data/strategy_research/build_price_action_knowledge_layer.py
+  "$PYTHON" user_data/strategy_research/build_price_action_knowledge_graph.py
+  "$PYTHON" user_data/strategy_research/build_research_consolidation.py
+fi
+
 if [[ "$mode" == "regime_windows" ]]; then
   echo "== Strategy Research Agent: data-derived regime windows =="
   "$PYTHON" user_data/strategy_research/regime_window_builder.py
@@ -277,6 +285,7 @@ run_optional_script() {
 
 run_agent_brain() {
   echo "== Strategy Research Agent: agent brain prerequisite =="
+  "$PYTHON" user_data/strategy_research/build_price_action_knowledge_base.py
   "$PYTHON" user_data/strategy_research/build_price_action_knowledge_layer.py
   "$PYTHON" user_data/strategy_research/build_price_action_knowledge_graph.py
   run_optional_script user_data/strategy_research/build_strategy_lineage.py

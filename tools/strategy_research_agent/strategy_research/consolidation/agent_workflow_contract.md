@@ -135,6 +135,22 @@ The active research rule is:
 
 > Knowledge proposes events. Event studies test edge. Only edge candidates become strategies. Backtests must then be attributed before memory or next experiments change.
 
+The knowledge graph is a multi-domain external brain. It must not collapse back
+to only trading-behavior or price-action notes. Normal research must load and
+use these domains when relevant:
+
+- price action
+- regime routing
+- derivatives structure: funding, OI, liquidation, mark/index basis
+- microstructure and execution cost: spread, slippage, order book depth, minimum edge
+- cross-asset lead-lag and shared market-factor context
+- Freqtrade runtime execution hooks and config override checks
+
+If a hypothesis depends on non-OHLCV features, required data coverage must be
+verified before strategy synthesis. Missing funding/OI/L2/basis/router/runtime
+data downgrades the idea to research-only diagnostics or event study; it cannot
+become Freqtrade strategy code from theory alone.
+
 ## Factor Research Gate
 
 Factor research is a required front-door stage inside the same Agent, not a

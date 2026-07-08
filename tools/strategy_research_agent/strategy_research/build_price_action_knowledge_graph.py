@@ -169,6 +169,7 @@ def add_card(g: GraphBuilder, card: dict[str, Any], sources: dict[str, dict[str,
         card["title"],
         card_id=card["id"],
         category=card.get("category"),
+        knowledge_domain=card.get("knowledge_domain", "price_action"),
         active=active,
         quarantined=not active or verification.get("quarantined", False),
         source_quality=quality.get("level"),
@@ -178,6 +179,9 @@ def add_card(g: GraphBuilder, card: dict[str, Any], sources: dict[str, dict[str,
     )
     category_id = g.add_node(f"category:{card.get('category')}", "category", card.get("category", "unknown"))
     g.add_edge(card_id, "BELONGS_TO_CATEGORY", category_id)
+    domain = card.get("knowledge_domain", "price_action")
+    domain_id = g.add_node(f"knowledge_domain:{domain}", "knowledge_domain", domain)
+    g.add_edge(card_id, "BELONGS_TO_DOMAIN", domain_id)
 
     translation = card.get("freqtrade_translation") or {}
     family = translation.get("strategy_family", "unknown")
@@ -187,6 +191,10 @@ def add_card(g: GraphBuilder, card: dict[str, Any], sources: dict[str, dict[str,
     for concept in card.get("concepts", []):
         concept_id = g.add_node(f"concept:{concept}", "concept", concept)
         g.add_edge(card_id, "HAS_CONCEPT", concept_id)
+
+    for requirement in card.get("data_requirements", []):
+        requirement_id = g.add_node(f"data_requirement:{requirement}", "data_requirement", requirement)
+        g.add_edge(card_id, "REQUIRES_DATA", requirement_id)
 
     for ref in card.get("source_refs", []):
         src = sources.get(ref, {})
@@ -288,6 +296,13 @@ def add_semantic_edges(g: GraphBuilder) -> None:
         ("concept:trading_system", "REQUIRES", "concept:risk_process"),
         ("concept:review", "SUPPORTS", "concept:execution_audit"),
         ("concept:discipline", "PREVENTS", "concept:intuition_trading"),
+        ("concept:funding_rate", "MEASURES", "concept:crowding"),
+        ("concept:open_interest", "MEASURES", "concept:participation"),
+        ("concept:liquidation", "CAN_CREATE", "concept:forced_flow"),
+        ("concept:spread", "CONSTRAINS", "concept:minimum_edge"),
+        ("concept:slippage", "CONSTRAINS", "concept:minimum_edge"),
+        ("concept:btc_lead", "SUPPORTS", "concept:lead_lag"),
+        ("concept:freqtrade_hooks", "REQUIRES", "concept:runtime_override"),
     ]
     for source, relation, target in semantic_pairs:
         if exists(source) and exists(target):
@@ -301,6 +316,8 @@ def build_index(nodes: list[dict[str, Any]], edges: list[dict[str, Any]]) -> dic
     reverse_adjacency: dict[str, list[dict[str, str]]] = defaultdict(list)
     concept_to_cards: dict[str, list[str]] = defaultdict(list)
     source_to_cards: dict[str, list[str]] = defaultdict(list)
+    domain_to_cards: dict[str, list[str]] = defaultdict(list)
+    requirement_to_cards: dict[str, list[str]] = defaultdict(list)
     active_cards = []
     quarantined_cards = []
 
@@ -321,6 +338,10 @@ def build_index(nodes: list[dict[str, Any]], edges: list[dict[str, Any]]) -> dic
             concept_to_cards[concept].append(edge["source"])
         if edge["relation"] == "DERIVED_FROM" and edge["source"].startswith("card:"):
             source_to_cards[edge["target"].replace("source:", "")].append(edge["source"])
+        if edge["relation"] == "BELONGS_TO_DOMAIN" and edge["source"].startswith("card:"):
+            domain_to_cards[edge["target"].replace("knowledge_domain:", "")].append(edge["source"])
+        if edge["relation"] == "REQUIRES_DATA" and edge["source"].startswith("card:"):
+            requirement_to_cards[edge["target"].replace("data_requirement:", "")].append(edge["source"])
     return {
         "generated_at_utc": now_utc(),
         "node_count": len(nodes),
@@ -331,6 +352,8 @@ def build_index(nodes: list[dict[str, Any]], edges: list[dict[str, Any]]) -> dic
         "edges_by_relation": dict(sorted(edges_by_relation.items())),
         "concept_to_cards": {key: sorted(set(value)) for key, value in concept_to_cards.items()},
         "source_to_cards": {key: sorted(set(value)) for key, value in source_to_cards.items()},
+        "domain_to_cards": {key: sorted(set(value)) for key, value in domain_to_cards.items()},
+        "data_requirement_to_cards": {key: sorted(set(value)) for key, value in requirement_to_cards.items()},
         "adjacency": {key: value for key, value in adjacency.items()},
         "reverse_adjacency": {key: value for key, value in reverse_adjacency.items()},
         "artifacts": {
@@ -363,6 +386,12 @@ def write_markdown(nodes: list[dict[str, Any]], edges: list[dict[str, Any]], ind
     lines.extend(["", "## Edge Relations", "", "| Relation | Count |", "|---|---:|"])
     for relation, count in index["edges_by_relation"].items():
         lines.append(f"| `{relation}` | {count} |")
+    lines.extend(["", "## Knowledge Domains", "", "| Domain | Cards |", "|---|---:|"])
+    for domain, cards in sorted(index.get("domain_to_cards", {}).items()):
+        lines.append(f"| `{domain}` | {len(cards)} |")
+    lines.extend(["", "## Data Requirements", "", "| Requirement | Cards |", "|---|---:|"])
+    for requirement, cards in sorted(index.get("data_requirement_to_cards", {}).items()):
+        lines.append(f"| `{requirement}` | {len(cards)} |")
     lines.extend(["", "## Active Knowledge Cards", "", "| Card | Family | Quality | Concepts |", "|---|---|---|---|"])
     for node in sorted(nodes, key=lambda item: item["id"]):
         if node["type"] != "knowledge_card" or not node.get("active"):
@@ -401,6 +430,7 @@ def write_agent_context(nodes: list[dict[str, Any]], edges: list[dict[str, Any]]
                 "card_node": card["id"],
                 "title": card["label"],
                 "category": card.get("category"),
+                "knowledge_domain": card.get("knowledge_domain", "price_action"),
                 "source_quality": card.get("source_quality"),
                 "concepts": [
                     edge["target"].replace("concept:", "")
@@ -411,6 +441,11 @@ def write_agent_context(nodes: list[dict[str, Any]], edges: list[dict[str, Any]]
                     edge["target"].replace("source:", "")
                     for edge in outgoing
                     if edge["relation"] == "DERIVED_FROM"
+                ],
+                "data_requirements": [
+                    edge["target"].replace("data_requirement:", "")
+                    for edge in outgoing
+                    if edge["relation"] == "REQUIRES_DATA"
                 ],
                 "knowledge": card.get("knowledge"),
                 "strategy_hypothesis": hypothesis.get("text"),
@@ -451,6 +486,11 @@ def write_agent_context(nodes: list[dict[str, Any]], edges: list[dict[str, Any]]
                 "exclude_quarantined_cards": True,
                 "must_backtest_before_promotion": True,
                 "no_live_or_dryrun_config_changes": True,
+            },
+            "index": {
+                "domain_to_cards": index.get("domain_to_cards", {}),
+                "data_requirement_to_cards": index.get("data_requirement_to_cards", {}),
+                "concept_to_cards": index.get("concept_to_cards", {}),
             },
             "cards": cards,
         },

@@ -61,6 +61,21 @@ The gate requires these fixed artifacts to be loadable:
 - regime inference quarantine manifest
 - weekly knowledge update layer
 
+The knowledge graph is a multi-domain external brain, not only a price-action
+notebook. Normal strategy research requires active cards in these domains:
+
+- price action
+- regime routing
+- crypto derivatives structure: funding, OI, liquidation, mark/index basis
+- market microstructure and execution cost: spread, slippage, order book depth, minimum edge
+- cross-asset lead-lag and common market-factor context
+- Freqtrade runtime execution hooks and config override checks
+
+When a hypothesis uses non-OHLCV concepts, the Agent must verify the required
+data coverage first. Missing funding/OI/L2/basis/router/runtime data downgrades
+the idea to research-only diagnostics or event study; it cannot become strategy
+code from theory alone.
+
 ## Current Workflow
 
 1. Preflight.

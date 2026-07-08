@@ -26,18 +26,31 @@ OUTPUT_EXPERIMENT = AGENT_ROOT / "experiments/knowledge_guided_strategy_experime
 
 
 BLOCKER_TO_CONCEPTS = {
-    "weak_profit_factor": ["entry_confirmation", "pullback", "actual_risk", "fees"],
-    "negative_or_missing_return": ["edge", "regime_router", "fee_stress", "pullback"],
-    "loss_exit_quality": ["stoploss", "invalidation", "actual_risk", "timebox"],
-    "too_few_trades": ["regime_router", "entry_confirmation", "session_filter"],
-    "too_few_matrix_trades": ["regime_router", "session", "time_filter"],
-    "matrix_not_robust": ["market_cycle", "regime_router", "sessionless_market"],
-    "fragile_matrix": ["market_cycle", "regime_router", "walk_forward"],
-    "negative_after_cost": ["fees", "fee_stress", "scalp", "slippage"],
-    "stress_cost_failure": ["fees", "slippage", "microstructure"],
-    "cost_evidence_missing": ["fees", "funding", "fee_stress"],
+    "weak_profit_factor": ["entry_confirmation", "pullback", "actual_risk", "fees", "minimum_edge"],
+    "negative_or_missing_return": ["edge", "regime_router", "fee_stress", "pullback", "participation"],
+    "loss_exit_quality": ["stoploss", "invalidation", "actual_risk", "timebox", "forced_flow"],
+    "too_few_trades": ["regime_router", "entry_confirmation", "session_filter", "lead_lag"],
+    "too_few_matrix_trades": ["regime_router", "session", "time_filter", "market_factor"],
+    "matrix_not_robust": ["market_cycle", "regime_router", "sessionless_market", "crowding"],
+    "fragile_matrix": ["market_cycle", "regime_router", "walk_forward", "btc_lead"],
+    "negative_after_cost": ["fees", "fee_stress", "scalp", "slippage", "spread", "minimum_edge"],
+    "stress_cost_failure": ["fees", "slippage", "microstructure", "order_book", "spread"],
+    "cost_evidence_missing": ["fees", "funding", "funding_rate", "fee_stress"],
     "bias_checks_missing": ["walk_forward", "out_of_sample", "falsification"],
     "lookahead_or_recursive_unverified": ["walk_forward", "out_of_sample", "falsification"],
+}
+
+BLOCKER_TO_DOMAINS = {
+    "negative_after_cost": ["microstructure", "execution"],
+    "stress_cost_failure": ["microstructure", "execution"],
+    "cost_evidence_missing": ["derivatives", "microstructure"],
+    "matrix_not_robust": ["regime", "derivatives", "cross_asset"],
+    "fragile_matrix": ["regime", "cross_asset"],
+    "too_few_trades": ["cross_asset", "regime"],
+    "too_few_matrix_trades": ["regime", "cross_asset"],
+    "loss_exit_quality": ["execution", "derivatives"],
+    "weak_profit_factor": ["microstructure", "price_action"],
+    "negative_or_missing_return": ["derivatives", "cross_asset", "price_action"],
 }
 
 
@@ -106,15 +119,28 @@ def card_score(card: dict[str, Any], desired: list[str], avoid_rules: list[str])
 
 def choose_cards(cards: list[dict[str, Any]], blocker: str, avoid_rules: list[str]) -> list[dict[str, Any]]:
     desired = BLOCKER_TO_CONCEPTS.get(blocker, ["entry_confirmation", "regime_router", "risk_control"])
+    desired_domains = set(BLOCKER_TO_DOMAINS.get(blocker, []))
     scored = []
     for card in cards:
         score, blocked = card_score(card, desired, avoid_rules)
+        if card.get("knowledge_domain") in desired_domains:
+            score += 6
+        if desired_domains and card.get("knowledge_domain") == "price_action":
+            score += 1
         if score > 0:
             scored.append((score, blocked, card))
     scored.sort(key=lambda item: (-item[0], item[1], card_id(item[2])))
     selected = [item[2] for item in scored[:3]]
     if len(selected) < 3:
-        fallback = [card for card in cards if card not in selected and card.get("category") in {"risk", "definition", "crypto_adaptation"}]
+        fallback = [
+            card
+            for card in cards
+            if card not in selected
+            and (
+                card.get("category") in {"risk", "definition", "crypto_adaptation", "crypto_derivatives", "execution_cost"}
+                or card.get("knowledge_domain") in desired_domains
+            )
+        ]
         selected.extend(fallback[: 3 - len(selected)])
     return selected[:3]
 
@@ -144,6 +170,8 @@ def hypothesis_from_cards(index: int, blocker: str, selected: list[dict[str, Any
     concepts = []
     required_checks = []
     avoid_from_cards = []
+    data_requirements = []
+    knowledge_domains = []
     for card in selected:
         trans = card.get("freqtrade_translation") or {}
         entry_rules.extend(trans.get("entry_rules", []))
@@ -154,6 +182,8 @@ def hypothesis_from_cards(index: int, blocker: str, selected: list[dict[str, Any
         not_applicable.extend(trans.get("not_applicable_regimes", []))
         risk_notes.extend(card.get("risk_notes", []))
         concepts.extend(card.get("concepts", []))
+        knowledge_domains.append(card.get("knowledge_domain", "price_action"))
+        data_requirements.extend(card.get("data_requirements", []))
         required_checks.extend(card.get("required_checks", []))
         avoid_from_cards.extend(card.get("avoid_rules", []))
     return {
@@ -168,6 +198,7 @@ def hypothesis_from_cards(index: int, blocker: str, selected: list[dict[str, Any
         "strategy_family_direction": contract["direction"],
         "regime_contract": contract,
         "concepts": dedupe(concepts)[:12],
+        "knowledge_domains": dedupe(knowledge_domains),
         "trading_idea": primary["strategy_hypothesis"],
         "quantified_entry_rules": dedupe(entry_rules)[:5],
         "quantified_exit_or_invalidation_rules": dedupe(exit_rules)[:4],
@@ -177,10 +208,12 @@ def hypothesis_from_cards(index: int, blocker: str, selected: list[dict[str, Any
         )[:5],
         "not_applicable_regimes": dedupe(not_applicable or contract["disabled_regimes"])[:5],
         "freqtrade_feature_suggestions": dedupe(features)[:10],
+        "data_requirements": dedupe(data_requirements) or ["ohlcv"],
         "backtest_requirements": dedupe(required_checks)
         or [
             "BTC/ETH only",
             "base and stress fee/slippage scenarios",
+            "required data coverage check for non-OHLCV features",
             "recursive-analysis and lookahead-analysis before any promotion",
             "regime matrix and walk-forward validation",
         ],
@@ -196,6 +229,7 @@ def hypothesis_from_cards(index: int, blocker: str, selected: list[dict[str, Any
             "must_pass_required_checks": True,
             "must_declare_strategy_family_before_generation": True,
             "must_attribute_results_by_strategy_family": True,
+            "must_verify_data_requirements_before_strategy_synthesis": True,
         },
     }
 
@@ -245,6 +279,8 @@ def build_payload() -> dict[str, Any]:
             "card_count": index.get("card_count"),
             "claim_count": index.get("claim_count"),
             "quality_summary": index.get("quality_summary"),
+            "domain_index": index.get("domain_index"),
+            "data_requirement_index": index.get("data_requirement_index"),
         },
         "experiment": {
             "id": "knowledge_guided_strategy_research",
@@ -289,10 +325,29 @@ def write_markdown(payload: dict[str, Any]) -> None:
     lines.extend(
         [
             "",
+            "## Required Data Coverage",
+            "",
+            "| ID | Knowledge Domains | Data Requirements |",
+            "|---|---|---|",
+        ]
+    )
+    for item in payload["hypotheses"]:
+        lines.append(
+            "| {hypothesis_id} | {domains} | {requirements} |".format(
+                hypothesis_id=item["hypothesis_id"],
+                domains=", ".join(item.get("knowledge_domains", [])),
+                requirements=", ".join(item.get("data_requirements", [])),
+            )
+        )
+    lines.extend(
+        [
+            "",
             "## Policy",
             "",
             "- This file only creates research hypotheses; it does not create live trading code.",
             "- Every generated strategy must first declare one canonical strategy family and regime contract.",
+            "- Hypotheses must combine price-action cards with market-structure cards when funding, OI, liquidation, cross-asset, or execution-cost concepts are relevant.",
+            "- Non-OHLCV data requirements must be checked before strategy synthesis; missing data downgrades the idea to research-only event study.",
             "- Post-run attribution must aggregate evidence by strategy family, not only by individual strategy class.",
             "- Any generated strategy must pass backtesting, recursive-analysis, lookahead-analysis, regime matrix, fee/slippage stress, and promotion gate.",
             "- If research memory conflicts with a knowledge card family, the output is downgraded to a variant/counterexample experiment.",
