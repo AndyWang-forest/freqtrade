@@ -144,6 +144,19 @@ def row_key(row: dict[str, Any]) -> tuple[str, str, str, str]:
     )
 
 
+def canonical_gate_window(window: str) -> str:
+    """Normalize runner-specific recent-window labels for promotion gates."""
+    if window in {"65d", "30d", "latest5"}:
+        return window
+    if window in {"recent_65d", "current_65d"} or window.startswith("65d_"):
+        return "65d"
+    if window in {"recent_30d", "current_30d"} or window.startswith("30d_"):
+        return "30d"
+    if window.startswith("latest5_"):
+        return "latest5"
+    return window
+
+
 def load_payload(artifact: Path) -> dict[str, Any] | None:
     if not artifact.exists() or artifact.suffix != ".zip":
         return None
@@ -267,7 +280,7 @@ def summarize_strategy(
         for row in high_rows
     }
     main = {
-        row.get("window", ""): (row, sims[row_key(row)])
+        canonical_gate_window(row.get("window", "")): (row, sims[row_key(row)])
         for row in high_rows
         if row.get("slice") == "main"
     }
@@ -277,7 +290,7 @@ def summarize_strategy(
         if row.get("slice") == "manifest" and "manifest_bear" in row.get("window", "")
     ]
     recent = {
-        row.get("window", ""): (row, sims[row_key(row)])
+        canonical_gate_window(row.get("window", "")): (row, sims[row_key(row)])
         for row in high_rows
         if row.get("slice") == "recent"
     }
