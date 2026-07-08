@@ -38,6 +38,10 @@ user_data/strategy_research/start_manual_research.sh --factor-research --extra-a
 user_data/strategy_research/start_manual_research.sh --event-study --extra-agent-arg --pair-scope --extra-agent-arg research_all
 ```
 
+`--agent-brain` also preserves the selected pair scope when it refreshes factor
+research internally, so a long run cannot silently overwrite `latest_factor_*`
+back to `core` after an explicit `research_all` cycle.
+
 ## Required Preload
 
 Every strategy research entrypoint first runs:
@@ -121,6 +125,33 @@ Removed legacy entrypoints must not be reintroduced without a new PR and a clear
 workflow reason: broad smoke wrappers, all-in-one cycle wrappers, agenda
 executors, manual playbook generators, behavior-plan generators, and separate
 K-line lab wrappers.
+
+## Long-Running Research Daemon
+
+For unattended research-only loops, use:
+
+```bash
+PAIR_SCOPE=research_all DURATION_HOURS=12 CYCLE_MINUTES=45 \
+  user_data/strategy_research/run_tonight_research_daemon.sh
+```
+
+The daemon rotates through agent brain, factor research, event study,
+factor-to-strategy planning, mature researcher queue/execution, post-run
+attribution, and family risk gate. It runs preflight and current-market router
+before each cycle, then refreshes memory, lineage, and dashboard.
+
+Each successful cycle snapshots the important `latest_*` artifacts into the run
+directory:
+
+```text
+user_data/strategy_research/daemon_runs/<UTC_START>/artifacts/cycle_###_<mode>/
+```
+
+This preserves per-cycle evidence even though runtime reports such as
+`latest_factor_research.md` and `latest_event_study.md` intentionally remain
+"latest pointer" files. For pair-scope sensitive modes, the daemon validates
+that the report JSON still matches the requested `PAIR_SCOPE`; a mismatch fails
+the cycle instead of being hidden by a later report overwrite.
 
 ## A1 External Permission Research
 

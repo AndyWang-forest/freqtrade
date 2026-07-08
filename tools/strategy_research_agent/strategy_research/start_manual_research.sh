@@ -226,12 +226,14 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-pair_scope_for_preflight="core"
+agent_pair_scope="${AGENT_PAIR_SCOPE:-core}"
 for ((idx=0; idx<${#extra_args[@]}; idx++)); do
   if [[ "${extra_args[$idx]}" == "--pair-scope" && $((idx + 1)) -lt ${#extra_args[@]} ]]; then
-    pair_scope_for_preflight="${extra_args[$((idx + 1))]}"
+    agent_pair_scope="${extra_args[$((idx + 1))]}"
   fi
 done
+pair_scope_for_preflight="$agent_pair_scope"
+pair_scope_args=(--pair-scope "$agent_pair_scope")
 
 echo "== Strategy Research Agent: preflight =="
 "$PYTHON" user_data/strategy_research/preflight_research_agent.py --pair-scope "$pair_scope_for_preflight"
@@ -279,7 +281,7 @@ run_agent_brain() {
   "$PYTHON" user_data/strategy_research/build_price_action_knowledge_graph.py
   run_optional_script user_data/strategy_research/build_strategy_lineage.py
   "$PYTHON" user_data/strategy_research/build_research_memory.py
-  "$PYTHON" user_data/strategy_research/factor_research.py
+  "$PYTHON" user_data/strategy_research/factor_research.py "${pair_scope_args[@]}"
   "$PYTHON" user_data/strategy_research/factor_to_strategy_plan.py
   "$PYTHON" user_data/strategy_research/plan_knowledge_guided_hypotheses.py
   "$PYTHON" user_data/strategy_research/plan_memory_guided_hypotheses.py

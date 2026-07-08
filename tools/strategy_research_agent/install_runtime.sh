@@ -101,6 +101,7 @@ fi
 
 for executable in \
   "$ROOT/user_data/strategy_research/run_daily_research.sh" \
+  "$ROOT/user_data/strategy_research/run_tonight_research_daemon.sh" \
   "$ROOT/user_data/strategy_research/run_weekly_knowledge_update.sh" \
   "$ROOT/user_data/strategy_research/runtime/start_futures_dryrun.sh" \
   "$ROOT/user_data/strategy_research/runtime/preflight_futures_runtime.py" \
