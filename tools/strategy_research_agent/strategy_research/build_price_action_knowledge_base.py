@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import html
+import http.client
 import json
 import re
 import subprocess
@@ -438,7 +439,7 @@ def fetch_bytes(url: str) -> tuple[bytes, str, bool, str | None]:
         with urllib.request.urlopen(request, timeout=25) as response:  # noqa: S310 - user-requested bounded fetch.
             raw = response.read(MAX_SNAPSHOT_BYTES + 1)
             return raw[:MAX_SNAPSHOT_BYTES], response.headers.get("content-type", "unknown"), len(raw) > MAX_SNAPSHOT_BYTES, None
-    except (urllib.error.URLError, TimeoutError) as exc:
+    except (urllib.error.URLError, TimeoutError, http.client.IncompleteRead) as exc:
         fallback = subprocess.run(
             [
                 "curl",
