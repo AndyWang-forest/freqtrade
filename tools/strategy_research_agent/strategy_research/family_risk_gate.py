@@ -34,6 +34,7 @@ REPO_ROOT = find_repo_root()
 REPORT_DIR = REPO_ROOT / "user_data/strategy_research/reports"
 OUTPUT_DIR = REPO_ROOT / "user_data/strategy_research/family_risk_gate"
 PROMOTION_DIR = REPO_ROOT / "user_data/strategy_research/promotion_reports"
+REGIME_MANIFEST_PATH = REPO_ROOT / "user_data/strategy_research/regime_windows/latest_regime_windows.json"
 
 STARTING_BALANCE = 1000.0
 TARGET_65D_GATE = 30.0
@@ -53,6 +54,11 @@ FAMILY_INFERENCE = [
     ("UptrendPullback", "uptrend_pullback_long"),
     ("UpsideBreakout", "upside_breakout_continuation_long"),
 ]
+
+FAMILY_ROLE_ALIASES = {
+    "range_mean_reversion": "range_upper_reversion_short",
+    "range_false_break_reversion": "range_upper_reversion_short",
+}
 
 
 @dataclass
@@ -131,6 +137,10 @@ def infer_family(strategy: str, row: dict[str, Any]) -> str:
     return "unknown"
 
 
+def canonical_family_for_roles(family: str) -> str:
+    return FAMILY_ROLE_ALIASES.get(family, family)
+
+
 def scenario_is_high_fee(row: dict[str, Any]) -> bool:
     return is_primary_scenario(row.get("scenario"))
 
@@ -155,6 +165,79 @@ def canonical_gate_window(window: str) -> str:
     if window.startswith("latest5_"):
         return "latest5"
     return window
+
+
+def load_regime_manifest() -> dict[str, Any]:
+    if not REGIME_MANIFEST_PATH.exists():
+        return {}
+    try:
+        manifest = json.loads(REGIME_MANIFEST_PATH.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {}
+    if manifest.get("method") != "data_derived_btc_eth_futures_ohlcv":
+        return {}
+    return manifest
+
+
+def active_window_names_by_label(manifest: dict[str, Any], label: str) -> set[str]:
+    return {
+        item.get("name", "")
+        for item in manifest.get("windows", [])
+        if item.get("status") == "active" and item.get("label") == label and item.get("name")
+    }
+
+
+def active_window_names_except_label(manifest: dict[str, Any], label: str) -> set[str]:
+    return {
+        item.get("name", "")
+        for item in manifest.get("windows", [])
+        if item.get("status") == "active" and item.get("label") != label and item.get("name")
+    }
+
+
+def family_role_names(manifest: dict[str, Any], family: str, role: str) -> set[str]:
+    if family == "volatility_compression_directional_expansion":
+        if role == "home":
+            return active_window_names_by_label(manifest, "high_vol")
+        if role == "hostile":
+            return active_window_names_except_label(manifest, "high_vol")
+    roles = manifest.get("family_window_roles") or {}
+    canonical = canonical_family_for_roles(family)
+    names = set(roles.get(canonical, {}).get(role, []) or [])
+    if not names and canonical != family:
+        names = set(roles.get(family, {}).get(role, []) or [])
+    return names
+
+
+def manifest_window_name(row: dict[str, Any]) -> str:
+    window = row.get("window", "")
+    if not window.startswith("manifest_"):
+        return window
+    return window.removeprefix("manifest_")
+
+
+def manifest_row_matches(row: dict[str, Any], role_names: set[str]) -> bool:
+    if row.get("slice") != "manifest":
+        return False
+    window_name = manifest_window_name(row)
+    return any(window_name == name or window_name.endswith(f"_{name}") for name in role_names)
+
+
+def current_rows_are_abstention(rows: list[dict[str, Any]], sims: dict[tuple[str, str, str, str], SimResult]) -> bool:
+    current_rows = [
+        row
+        for row in rows
+        if row.get("slice") == "main" and canonical_gate_window(row.get("window", "")) in {"65d", "30d", "latest5"}
+    ]
+    if not current_rows:
+        return False
+    return all(sims[row_key(row)].trades_taken == 0 and sims[row_key(row)].guarded_profit_pct == 0.0 for row in current_rows)
+
+
+def best_sim(rows: list[tuple[dict[str, Any], SimResult]]) -> tuple[dict[str, Any], SimResult] | tuple[dict[str, Any], None]:
+    if not rows:
+        return {}, None
+    return max(rows, key=lambda item: (item[1].guarded_profit_pct, item[1].trades_taken))
 
 
 def load_payload(artifact: Path) -> dict[str, Any] | None:
@@ -273,6 +356,7 @@ def summarize_strategy(
     rows: list[dict[str, Any]],
     drawdown_pause_pct: float,
     consecutive_loss_pause: int,
+    regime_manifest: dict[str, Any],
 ) -> dict[str, Any]:
     high_rows = [row for row in rows if scenario_is_high_fee(row)]
     sims = {
@@ -284,6 +368,13 @@ def summarize_strategy(
         for row in high_rows
         if row.get("slice") == "main"
     }
+    home_names = family_role_names(regime_manifest, family, "home")
+    hostile_names = family_role_names(regime_manifest, family, "hostile")
+    home_rows = [
+        (row, sims[row_key(row)])
+        for row in high_rows
+        if manifest_row_matches(row, home_names)
+    ]
     manifest_target = [
         (row, sims[row_key(row)])
         for row in high_rows
@@ -295,18 +386,32 @@ def summarize_strategy(
         if row.get("slice") == "recent"
     }
     walk_forward = [(row, sims[row_key(row)]) for row in high_rows if row.get("slice") == "walk_forward"]
-    hostile = [(row, sims[row_key(row)]) for row in high_rows if row.get("slice") == "regime"]
+    hostile = [
+        (row, sims[row_key(row)])
+        for row in high_rows
+        if manifest_row_matches(row, hostile_names)
+    ]
+    if not hostile:
+        hostile = [(row, sims[row_key(row)]) for row in high_rows if row.get("slice") == "regime"]
     if not hostile:
         hostile = [
             (row, sims[row_key(row)])
             for row in high_rows
-            if row.get("slice") == "manifest" and "manifest_bear" not in row.get("window", "")
+            if row.get("slice") == "manifest" and not manifest_row_matches(row, home_names)
         ]
 
     row_65, sim_65 = main.get("65d", ({}, None))
     row_30, sim_30 = main.get("30d", ({}, None))
     row_5, sim_5 = main.get("latest5", ({}, None))
-    if sim_65 is None and manifest_target:
+    evaluation_mode = "recent_main"
+    current_window_role = "target"
+    home_row, home_sim = best_sim(home_rows)
+    if home_sim is not None:
+        evaluation_mode = "manifest_home"
+        current_window_role = "abstain" if current_rows_are_abstention(high_rows, sims) else "non_home_observation"
+        row_65, sim_65 = home_row, home_sim
+        row_30, sim_30 = {}, None
+    elif sim_65 is None and manifest_target:
         row_65, sim_65 = manifest_target[0]
     if sim_5 is None:
         row_5, sim_5 = recent.get("latest5", ({}, None))
@@ -329,20 +434,27 @@ def summarize_strategy(
 
     blockers: list[str] = []
     supports: list[str] = []
+    target_label = "home-regime" if evaluation_mode == "manifest_home" else "65d target-regime"
     if target_65 <= TARGET_65D_GATE:
-        blockers.append(f"65d target-regime guarded profit {target_65:.4f}% <= {TARGET_65D_GATE:.1f}%")
+        blockers.append(f"{target_label} guarded profit {target_65:.4f}% <= {TARGET_65D_GATE:.1f}%")
     else:
-        supports.append(f"65d target-regime guarded profit {target_65:.4f}% clears gate")
-    if sim_30 is None:
-        blockers.append("30d target-regime row missing from gate input")
-    elif target_30 <= TARGET_30D_GATE:
-        blockers.append(f"30d target-regime guarded profit {target_30:.4f}% <= {TARGET_30D_GATE:.1f}%")
+        supports.append(f"{target_label} guarded profit {target_65:.4f}% clears gate")
+    if evaluation_mode == "manifest_home":
+        if current_window_role == "abstain":
+            supports.append("current 65d/30d/latest5 non-home windows are clean abstention")
+        else:
+            supports.append("current 65d/30d/latest5 treated as non-home observation, not target-regime gate")
     else:
-        supports.append(f"30d target-regime guarded profit {target_30:.4f}% clears gate")
-    if latest5 <= LATEST5_GATE:
-        blockers.append("latest5 is not positive after family risk controls")
-    else:
-        supports.append(f"latest5 remains positive at {latest5:.4f}%")
+        if sim_30 is None:
+            blockers.append("30d target-regime row missing from gate input")
+        elif target_30 <= TARGET_30D_GATE:
+            blockers.append(f"30d target-regime guarded profit {target_30:.4f}% <= {TARGET_30D_GATE:.1f}%")
+        else:
+            supports.append(f"30d target-regime guarded profit {target_30:.4f}% clears gate")
+        if latest5 <= LATEST5_GATE:
+            blockers.append("latest5 is not positive after family risk controls")
+        else:
+            supports.append(f"latest5 remains positive at {latest5:.4f}%")
     if trades_65 < MIN_65D_TRADES:
         blockers.append(f"65d trades taken {trades_65} < {MIN_65D_TRADES}")
     if hostile_guarded_worst < HOSTILE_GUARDED_WORST_GATE:
@@ -379,6 +491,11 @@ def summarize_strategy(
         "target_30d_guarded_pct": round(target_30, 4),
         "latest5_guarded_pct": round(latest5, 4),
         "target_65d_trades_taken": trades_65,
+        "evaluation_mode": evaluation_mode,
+        "current_window_role": current_window_role,
+        "home_windows": sorted(home_names),
+        "hostile_windows": sorted(hostile_names),
+        "selected_home_window": row_65.get("window", ""),
         "walk_forward_positive": wf_positive,
         "walk_forward_total": wf_total,
         "walk_forward_worst_guarded_pct": round(wf_worst, 4),
@@ -395,13 +512,21 @@ def summarize_strategy(
 
 def build_payload(csv_path: Path, args: argparse.Namespace) -> dict[str, Any]:
     rows = read_csv(csv_path)
+    regime_manifest = load_regime_manifest()
     grouped: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
     for row in rows:
         strategy = row.get("strategy", "")
         family = infer_family(strategy, row)
         grouped[(family, strategy)].append(row)
     verdicts = [
-        summarize_strategy(strategy, family, strategy_rows, args.drawdown_pause_pct, args.consecutive_loss_pause)
+        summarize_strategy(
+            strategy,
+            family,
+            strategy_rows,
+            args.drawdown_pause_pct,
+            args.consecutive_loss_pause,
+            regime_manifest,
+        )
         for (family, strategy), strategy_rows in sorted(grouped.items())
     ]
     family_verdicts: dict[str, dict[str, Any]] = {}
@@ -421,6 +546,9 @@ def build_payload(csv_path: Path, args: argparse.Namespace) -> dict[str, Any]:
             "ready_for_manual_dryrun_review": best["ready_for_manual_dryrun_review"],
             "state": best["state"],
             "verdict": best["verdict"],
+            "evaluation_mode": best["evaluation_mode"],
+            "current_window_role": best["current_window_role"],
+            "selected_home_window": best["selected_home_window"],
             "blockers": best["blockers"],
             "blocks": best["blocks"],
             "supports": best["supports"],
@@ -429,13 +557,20 @@ def build_payload(csv_path: Path, args: argparse.Namespace) -> dict[str, Any]:
     return {
         "generated_at_utc": now_utc(),
         "source_csv": rel(csv_path),
-        "gate_version": 1,
+        "gate_version": 2,
         "scope": "all_strategy_families",
         "promotion_principle": (
             "Strategy families do not need to be all-regime holy grails.  Dry-run review requires "
-            "target-regime edge under the realistic-cost primary screen plus hostile-regime loss containment "
-            "under family/portfolio circuit breakers. Stress cost is a safety check, not the sole entry filter."
+            "family home-regime edge under the realistic-cost primary screen plus hostile-regime loss containment "
+            "under family/portfolio circuit breakers. Current non-home windows with zero trades are treated as "
+            "abstention evidence, not failed target-regime profit. Stress cost is a safety check, not the sole entry filter."
         ),
+        "regime_manifest": {
+            "path": rel(REGIME_MANIFEST_PATH),
+            "method": regime_manifest.get("method", "missing"),
+            "generated_at_utc": regime_manifest.get("generated_at_utc"),
+            "manifest_version": regime_manifest.get("manifest_version"),
+        },
         "risk_controls": {
             "starting_balance": STARTING_BALANCE,
             "primary_cost_scenario": PRIMARY_SCENARIO,
@@ -473,6 +608,7 @@ def write_markdown(payload: dict[str, Any]) -> Path:
         f"- Generated UTC: `{timestamp}`",
         f"- Source CSV: `{payload['source_csv']}`",
         f"- Scope: `{payload['scope']}`",
+        f"- Gate version: `{payload['gate_version']}`",
         "",
         "## Principle",
         "",
@@ -485,11 +621,32 @@ def write_markdown(payload: dict[str, Any]) -> Path:
     ]
     for key, value in payload["risk_controls"].items():
         lines.append(f"| `{key}` | {value} |")
-    lines.extend(["", "## Family Verdicts", "", "| Family | Best Strategy | Ready | State | Blockers |", "|---|---|---:|---|---|"])
+    lines.extend(
+        [
+            "",
+            "## Regime Manifest",
+            "",
+            "| Field | Value |",
+            "|---|---|",
+        ]
+    )
+    for key, value in payload.get("regime_manifest", {}).items():
+        lines.append(f"| `{key}` | {value} |")
+    lines.extend(
+        [
+            "",
+            "## Family Verdicts",
+            "",
+            "| Family | Best Strategy | Eval Mode | Current Role | Selected Home | Ready | State | Blockers |",
+            "|---|---|---|---|---|---:|---|---|",
+        ]
+    )
     for item in payload["family_verdicts"]:
         blockers = "; ".join(item["blockers"]) if item["blockers"] else "none"
         lines.append(
-            f"| `{item['family']}` | `{item['best_strategy']}` | {item['ready_for_manual_dryrun_review']} | "
+            f"| `{item['family']}` | `{item['best_strategy']}` | `{item.get('evaluation_mode', '')}` | "
+            f"`{item.get('current_window_role', '')}` | `{item.get('selected_home_window', '')}` | "
+            f"{item['ready_for_manual_dryrun_review']} | "
             f"`{item['state']}` | {blockers} |"
         )
     lines.extend(
@@ -497,15 +654,16 @@ def write_markdown(payload: dict[str, Any]) -> Path:
             "",
             "## Strategy Verdicts",
             "",
-            "| Strategy | Family | State | 65d guarded | 30d guarded | latest5 | WF | Hostile raw worst | Hostile guarded worst | Evidence |",
-            "|---|---|---|---:|---:|---:|---|---:|---:|---|",
+            "| Strategy | Family | Eval Mode | Current Role | Selected Home | State | Home/65d guarded | 30d guarded | latest5 | WF | Hostile raw worst | Hostile guarded worst | Evidence |",
+            "|---|---|---|---|---|---|---:|---:|---:|---|---:|---:|---|",
         ]
     )
     for item in payload["verdicts"]:
         evidence = ", ".join(item["evidence_modes"])
         wf = f"{item['walk_forward_positive']}/{item['walk_forward_total']} worst {item['walk_forward_worst_guarded_pct']:.4f}%"
         lines.append(
-            f"| `{item['strategy']}` | `{item['strategy_family']}` | `{item['state']}` | "
+            f"| `{item['strategy']}` | `{item['strategy_family']}` | `{item.get('evaluation_mode', '')}` | "
+            f"`{item.get('current_window_role', '')}` | `{item.get('selected_home_window', '')}` | `{item['state']}` | "
             f"{item['target_65d_guarded_pct']:.4f} | {item['target_30d_guarded_pct']:.4f} | "
             f"{item['latest5_guarded_pct']:.4f} | {wf} | {item['hostile_raw_worst_pct']:.4f} | "
             f"{item['hostile_guarded_worst_pct']:.4f} | {evidence} |"
