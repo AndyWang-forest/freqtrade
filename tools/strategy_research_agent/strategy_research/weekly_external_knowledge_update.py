@@ -77,6 +77,17 @@ def run_step(name: str, command: list[str], optional: bool = False) -> dict[str,
     }
 
 
+def skipped_step(name: str, reason: str, optional: bool = True, status: str = "ok") -> dict[str, Any]:
+    return {
+        "name": name,
+        "status": status,
+        "optional": optional,
+        "command": [],
+        "returncode": 0,
+        "output_tail": reason,
+    }
+
+
 def count_state_before_after() -> dict[str, Any]:
     graph = load_json(AGENT_ROOT / "knowledge/graph/strategy_agent_graph_context.json")
     source_discovery = load_json(AGENT_ROOT / "source_discovery/latest_source_discovery.json")
@@ -219,7 +230,30 @@ def main() -> None:
     before = count_state_before_after()
     steps: list[dict[str, Any]] = []
     steps.append(run_step("external_source_scout", [python, "user_data/strategy_research/scout_external_sources.py"]))
-    steps.append(run_step("external_source_review", [python, "user_data/strategy_research/review_sources.py"]))
+    review_script = AGENT_ROOT / "review_sources.py"
+    source_discovery = load_json(AGENT_ROOT / "source_discovery/latest_source_discovery.json")
+    source_candidates = int(source_discovery.get("candidate_count", 0) or 0)
+    if review_script.exists():
+        steps.append(run_step("external_source_review", [python, "user_data/strategy_research/review_sources.py"]))
+    elif source_candidates == 0:
+        steps.append(
+            skipped_step(
+                "external_source_review",
+                "Skipped: review_sources.py is not installed and external source discovery found no review candidates.",
+            )
+        )
+    else:
+        steps.append(
+            skipped_step(
+                "external_source_review",
+                (
+                    "Blocked: review_sources.py is missing while external source discovery found "
+                    f"{source_candidates} candidate(s) requiring review."
+                ),
+                optional=False,
+                status="failed",
+            )
+        )
     if args.with_bilibili:
         steps.append(
             run_step(
