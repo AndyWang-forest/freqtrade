@@ -79,6 +79,28 @@ def now_utc() -> str:
     return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
 
+def family_candidate_rank(item: dict[str, Any]) -> tuple[Any, ...]:
+    """Rank family candidates by repeated edge before aggregate profit.
+
+    A strategy with independently positive home episodes is a stronger family
+    representative than a higher-return strategy supported by one lucky
+    episode. Promotion readiness remains the first boundary; guarded return is
+    considered only after repeatability.
+    """
+
+    positive = int(item.get("home_episode_positive") or 0)
+    total = int(item.get("home_episode_total") or 0)
+    positive_share = positive / total if total else 0.0
+    return (
+        bool(item.get("ready_for_manual_dryrun_review")),
+        positive,
+        positive_share,
+        float(item.get("target_65d_guarded_pct") or 0.0),
+        float(item.get("stress_home_total_guarded_pct") or 0.0),
+        float(item.get("hostile_guarded_worst_pct") or 0.0),
+    )
+
+
 def rel(path: Path) -> str:
     try:
         return str(path.relative_to(REPO_ROOT))
@@ -587,11 +609,7 @@ def build_payload(csv_path: Path, args: argparse.Namespace, provenance: dict[str
         family_items = [item for item in verdicts if item["strategy_family"] == family]
         best = max(
             family_items,
-            key=lambda item: (
-                item["ready_for_manual_dryrun_review"],
-                item["target_65d_guarded_pct"],
-                item["hostile_guarded_worst_pct"],
-            ),
+            key=family_candidate_rank,
         )
         family_verdicts[family] = {
             "family": family,

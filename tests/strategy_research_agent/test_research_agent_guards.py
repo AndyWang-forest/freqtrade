@@ -151,6 +151,25 @@ def test_family_gate_accepts_manifest_named_multi_episode_rows() -> None:
     assert family_risk_gate.manifest_row_matches(row, {"high_vol_20240314_20240512"})
 
 
+def test_family_gate_ranks_repeated_home_edge_before_higher_aggregate_profit() -> None:
+    repeated = {
+        "ready_for_manual_dryrun_review": False,
+        "home_episode_positive": 2,
+        "home_episode_total": 3,
+        "target_65d_guarded_pct": 21.0,
+        "stress_home_total_guarded_pct": 1.0,
+        "hostile_guarded_worst_pct": 0.0,
+    }
+    lucky = {
+        **repeated,
+        "home_episode_positive": 1,
+        "target_65d_guarded_pct": 30.0,
+        "stress_home_total_guarded_pct": 10.0,
+    }
+
+    assert family_risk_gate.family_candidate_rank(repeated) > family_risk_gate.family_candidate_rank(lucky)
+
+
 def test_experiment_pointer_is_machine_readable(tmp_path: Path) -> None:
     csv_path = tmp_path / "experiment.csv"
     pointer = tmp_path / "pointer.json"
