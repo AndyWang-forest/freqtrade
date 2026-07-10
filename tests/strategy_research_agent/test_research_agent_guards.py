@@ -142,6 +142,15 @@ def test_family_gate_applies_explicit_stress_floor() -> None:
     assert any("validation episodes missing" in blocker for blocker in verdict["blockers"])
 
 
+def test_family_gate_accepts_manifest_named_multi_episode_rows() -> None:
+    row = {
+        "slice": "multi_episode_high_vol",
+        "window": "high_vol_episode_2_high_vol_20240314_20240512",
+    }
+
+    assert family_risk_gate.manifest_row_matches(row, {"high_vol_20240314_20240512"})
+
+
 def test_experiment_pointer_is_machine_readable(tmp_path: Path) -> None:
     csv_path = tmp_path / "experiment.csv"
     pointer = tmp_path / "pointer.json"
