@@ -150,7 +150,12 @@ def build_frame(module: Any, pair_key: str, timeframe: str) -> pd.DataFrame:
                     else:
                         frame = module.load_pair(pair)
                     if hasattr(module, "add_indicators"):
-                        frame = module.add_indicators(frame)
+                        indicator_params = inspect.signature(module.add_indicators).parameters
+                        frame = (
+                            module.add_indicators(frame, tf)
+                            if len(indicator_params) >= 2
+                            else module.add_indicators(frame)
+                        )
                     frames[(pair, tf)] = frame
                 except Exception:
                     continue
@@ -341,8 +346,28 @@ def load_targets(args: argparse.Namespace) -> list[dict[str, Any]]:
             "startup_candles": args.startup_candles,
         }
         return [{key: value for key, value in target.items() if value is not None}]
+    registered_path: Path | None = None
+    try:
+        registered_path, provenance = resolve_experiment(register_explicit=False)
+    except (FileNotFoundError, ValueError):
+        provenance = {}
+    registered_targets = (provenance.get("metadata") or {}).get("alignment_targets")
+    if isinstance(registered_targets, list) and registered_targets:
+        return registered_targets
     if DEFAULT_TARGETS.exists():
-        return json.loads(DEFAULT_TARGETS.read_text(encoding="utf-8")).get("targets", [])
+        targets = json.loads(DEFAULT_TARGETS.read_text(encoding="utf-8")).get("targets", [])
+        safe_targets = []
+        for target in targets:
+            if target.get("experiment_sha256"):
+                safe_targets.append(target)
+                continue
+            experiment_csv = target.get("experiment_csv")
+            if registered_path is None or not experiment_csv:
+                continue
+            target_path = (REPO_ROOT / experiment_csv).resolve()
+            if target_path == registered_path.resolve():
+                safe_targets.append(target)
+        return safe_targets
     return []
 
 

@@ -65,7 +65,12 @@ def test_e_family_gate_uses_high_vol_for_new_and_legacy_ids() -> None:
             {"name": "high_vol_active", "label": "high_vol", "status": "active"},
             {"name": "range_active", "label": "range", "status": "active"},
         ],
-        "family_window_roles": {},
+        "family_window_roles": {
+            E_FAMILY: {
+                "home": ["high_vol_active"],
+                "hostile": ["range_active"],
+            }
+        },
     }
 
     assert FAMILY_HOME_LABELS[E_FAMILY] == {"high_vol"}

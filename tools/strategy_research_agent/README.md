@@ -10,7 +10,9 @@ Runtime files are installed into `user_data/` because Freqtrade expects strategi
 - `strategy_research/knowledge/knowledge_cards/`: short, traceable knowledge cards that are safe to version. These are summaries and testable hypotheses, not raw transcripts or book/article copies.
 - `strategies/research_generated/`: generated strategy source files that are safe to version.
 - `skills/`: Codex skills for strategy diagnosis, Freqtrade research loops, futures risk, scalping/microstructure, and promotion gates.
-- `download_binance_um_1m.py`: incremental Binance USDT-M 1m OHLCV updater.
+- `download_binance_um_1m.py`: public-archive Binance USDT-M OHLCV updater. The
+  historical filename is retained, but the tool supports `1m`, `3m`, `5m`,
+  `15m`, and `1h`, including prepend and gap repair.
 - `install_runtime.sh`: deploys the versioned source back into `user_data/`.
 - `install_skills.sh`: installs versioned strategy research skills into `~/.agents/skills`.
 - `install_runtime.ps1`: Windows PowerShell runtime installer.
@@ -38,6 +40,29 @@ user_data/download_binance_um_1m.py
 ```
 
 It does not copy local market data, reports, dashboards, API keys, Freqtrade configs, or backtest result archives into git.
+
+## Futures Data Refresh
+
+The archive downloader uses `data.binance.vision`; it does not require the
+Binance trading API or private credentials. Examples:
+
+```bash
+# Append current core 1m data.
+user_data/download_binance_um_1m.py --incremental
+
+# Build broad 15m/1h research history for the fixed research universe.
+user_data/download_binance_um_1m.py \
+  --symbols BTCUSDT ETHUSDT SOLUSDT BNBUSDT XRPUSDT \
+  --timeframes 15m 1h --start 2020-01-01 --prepend
+
+# Fill internal archive gaps from daily files.
+user_data/download_binance_um_1m.py \
+  --symbols SOLUSDT BNBUSDT XRPUSDT --timeframes 15m 1h --repair-gaps
+```
+
+The updater writes local coverage reports under
+`user_data/strategy_research/data_updates/`. Market data and reports remain
+local and are never copied into git by `install_runtime.sh`.
 
 ## Pair Universe Policy
 

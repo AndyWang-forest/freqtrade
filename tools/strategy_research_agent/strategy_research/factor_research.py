@@ -14,13 +14,12 @@ import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-
-from repo_paths import find_repo_root
 from typing import Any
 
 import pandas as pd
-
 from pair_universe import pairs_for_scope
+from regime_window_builder import REGIME_LABELS, active_windows_for_label, regime_entry_mask
+from repo_paths import find_repo_root
 
 
 REPO_ROOT = find_repo_root()
@@ -162,10 +161,16 @@ def quantile_sample(frame: pd.DataFrame, column: str, direction: str, side: str)
     return data[data[column] <= threshold]
 
 
-def evaluate_pair_timeframe(pair: str, timeframe: str) -> list[dict[str, Any]]:
+def evaluate_pair_timeframe(
+    pair: str,
+    timeframe: str,
+    regime_label: str | None,
+) -> list[dict[str, Any]]:
     frame = add_features(load_frame(pair, timeframe))
     horizon = {"3m": 12, "5m": 12, "15m": 8}[timeframe]
     frame = add_forward_labels(frame, horizon)
+    if regime_label:
+        frame = frame.loc[regime_entry_mask(frame, regime_label, horizon, timeframe)].copy()
     rows: list[dict[str, Any]] = []
     for spec in FACTOR_SPECS:
         for side in ["long", "short"]:
@@ -186,7 +191,7 @@ def evaluate_pair_timeframe(pair: str, timeframe: str) -> list[dict[str, Any]]:
     return rows
 
 
-def build_payload(pair_scope: str) -> dict[str, Any]:
+def build_payload(pair_scope: str, regime_label: str | None) -> dict[str, Any]:
     pairs = pairs_for_scope(pair_scope)
     evaluations: list[dict[str, Any]] = []
     audits: list[dict[str, Any]] = []
@@ -203,7 +208,7 @@ def build_payload(pair_scope: str) -> dict[str, Any]:
                         "last_utc": frame["date"].iloc[-1].isoformat() if len(frame) else None,
                     }
                 )
-                evaluations.extend(evaluate_pair_timeframe(pair, timeframe))
+                evaluations.extend(evaluate_pair_timeframe(pair, timeframe, regime_label))
             audits.append(audit)
     candidates = [
         item
@@ -215,6 +220,10 @@ def build_payload(pair_scope: str) -> dict[str, Any]:
         "research_only": True,
         "market": "Binance USDT-M futures",
         "pair_scope": pair_scope,
+        "regime_label": regime_label,
+        "regime_windows": [
+            item["name"] for item in active_windows_for_label(regime_label)
+        ] if regime_label else [],
         "timeframes": TIMEFRAMES,
         "pairs": pairs,
         "fee_round_trip": FEE_ROUND_TRIP,
@@ -237,6 +246,8 @@ def write_markdown(path: Path, payload: dict[str, Any]) -> None:
         f"- Generated UTC: `{payload['generated_at_utc']}`",
         f"- Market: `{payload['market']}`",
         f"- Pair scope: `{payload['pair_scope']}`",
+        f"- Regime label: `{payload['regime_label'] or 'all'}`",
+        f"- Active regime windows: `{', '.join(payload['regime_windows']) or 'all data'}`",
         f"- Pairs: `{', '.join(payload['pairs'])}`",
         f"- Timeframes: `{', '.join(payload['timeframes'])}`",
         f"- Round-trip fee assumption: `{payload['fee_round_trip']}`",
@@ -293,13 +304,19 @@ def parse_args() -> argparse.Namespace:
         default="core",
         help="Pair universe to evaluate. Defaults to core BTC/ETH futures.",
     )
+    parser.add_argument(
+        "--regime-label",
+        choices=REGIME_LABELS,
+        default=None,
+        help="Evaluate entries only inside active data-derived regime windows.",
+    )
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    payload = build_payload(args.pair_scope)
+    payload = build_payload(args.pair_scope, args.regime_label)
     timestamp = payload["generated_at_utc"]
     json_path = OUTPUT_DIR / f"factor_research_{timestamp}.json"
     md_path = OUTPUT_DIR / f"factor_research_{timestamp}.md"

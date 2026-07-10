@@ -60,6 +60,7 @@ FAMILY_INFERENCE = [
 FAMILY_ROLE_ALIASES = {
     "range_mean_reversion": "range_upper_reversion_short",
     "range_false_break_reversion": "range_upper_reversion_short",
+    "volatility_compression_breakout": "volatility_compression_directional_expansion",
 }
 
 
@@ -221,14 +222,6 @@ def active_window_names_except_label(manifest: dict[str, Any], label: str) -> se
 
 
 def family_role_names(manifest: dict[str, Any], family: str, role: str) -> set[str]:
-    if family in {
-        "volatility_compression_directional_expansion",
-        "volatility_compression_breakout",
-    }:
-        if role == "home":
-            return active_window_names_by_label(manifest, "high_vol")
-        if role == "hostile":
-            return active_window_names_except_label(manifest, "high_vol")
     roles = manifest.get("family_window_roles") or {}
     canonical = canonical_family_for_roles(family)
     names = set(roles.get(canonical, {}).get(role, []) or [])
@@ -443,8 +436,8 @@ def summarize_strategy(
         ]
 
     row_65, sim_65 = main.get("65d", ({}, None))
-    row_30, sim_30 = main.get("30d", ({}, None))
-    row_5, sim_5 = main.get("latest5", ({}, None))
+    _row_30, sim_30 = main.get("30d", ({}, None))
+    _row_5, sim_5 = main.get("latest5", ({}, None))
     evaluation_mode = "recent_main"
     current_window_role = "target"
     home_row, home_sim = combine_episode_sims(home_rows)
@@ -454,7 +447,7 @@ def summarize_strategy(
         row_65, sim_65 = home_row, home_sim
         sim_30 = None
     if sim_5 is None:
-        row_5, sim_5 = recent.get("latest5", ({}, None))
+        _row_5, sim_5 = recent.get("latest5", ({}, None))
     target_65 = sim_65.guarded_profit_pct if sim_65 else 0.0
     target_30 = sim_30.guarded_profit_pct if sim_30 else 0.0
     latest5 = sim_5.guarded_profit_pct if sim_5 else 0.0
@@ -778,7 +771,21 @@ def main() -> int:
     )
     payload = build_payload(csv_path, args, provenance)
     if args.csv_path:
-        provenance = register_experiment(csv_path, producer="family_risk_gate_explicit_input")
+        metadata = dict(provenance.get("metadata") or {})
+        try:
+            registered_path, registered_provenance = resolve_experiment(register_explicit=False)
+        except (FileNotFoundError, ValueError):
+            registered_path, registered_provenance = None, {}
+        if registered_path is not None and registered_path.resolve() == csv_path.resolve():
+            metadata = {
+                **(registered_provenance.get("metadata") or {}),
+                **metadata,
+            }
+        provenance = register_experiment(
+            csv_path,
+            producer="family_risk_gate_explicit_input",
+            metadata=metadata,
+        )
         payload["source_provenance"] = provenance
     json_path = write_json(payload)
     md_path = write_markdown(payload)
