@@ -220,8 +220,6 @@ def manifest_window_name(row: dict[str, Any]) -> str:
 
 
 def manifest_row_matches(row: dict[str, Any], role_names: set[str]) -> bool:
-    if row.get("slice") != "manifest":
-        return False
     window_name = manifest_window_name(row)
     return any(window_name == name or window_name.endswith(f"_{name}") for name in role_names)
 
