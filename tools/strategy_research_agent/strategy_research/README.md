@@ -38,6 +38,20 @@ user_data/strategy_research/start_manual_research.sh --factor-research --extra-a
 user_data/strategy_research/start_manual_research.sh --event-study --extra-agent-arg --pair-scope --extra-agent-arg research_all
 ```
 
+Factor and event research may additionally select a data-derived market state:
+
+```bash
+user_data/strategy_research/start_manual_research.sh --factor-research \
+  --extra-agent-arg --pair-scope --extra-agent-arg research_all \
+  --extra-agent-arg --regime-label --extra-agent-arg bull
+user_data/strategy_research/start_manual_research.sh --event-study \
+  --extra-agent-arg --pair-scope --extra-agent-arg research_all \
+  --extra-agent-arg --regime-label --extra-agent-arg bull
+```
+
+Indicators are computed on the full causal history; only entries whose entire
+forward-study horizon remains inside an active manifest window are evaluated.
+
 `--agent-brain` also preserves the selected pair scope when it refreshes factor
 research internally, so a long run cannot silently overwrite `latest_factor_*`
 back to `core` after an explicit `research_all` cycle.
@@ -98,9 +112,10 @@ code from theory alone.
 18. Update strategy lineage, research memory, consolidation, dashboard, and registry.
 
 Family-risk and promotion gate results are research evidence even when they
-fail. A failed gate must still rebuild lineage, research memory, and
-consolidation before the dashboard/report refresh so blockers become durable
-experience for the next loop.
+fail. Strategies in the current registered family-gate CSV enter lineage as
+`research_evidence` even when they are not in registry. A failed gate must still
+rebuild lineage, research memory, and consolidation before the dashboard/report
+refresh so blockers become durable experience for the next loop.
 
 ## Supported Entrypoints
 
@@ -226,11 +241,18 @@ not from hardcoded historical examples. Refresh them with:
 user_data/strategy_research/start_manual_research.sh --regime-windows
 ```
 
-The builder prefers `1h` futures feather data and resamples `15m`/`5m`/`1m`
+The builder strictly prefers `1h` futures feather data and resamples `15m`/`5m`/`1m`
 futures candles to `1h` when needed. It computes BTC/ETH returns, EMA gaps,
 realized volatility, ATR%, BB width, trend strength, range score, and
 directional agreement before selecting candidate `bull`, `bear`, `range`, and
-`high_vol` windows.
+`high_vol` windows. Percentile features are causal rolling percentiles, trend
+direction and high volatility are separate labels, and validation episodes for
+the same family cannot overlap in calendar time.
+
+Gate provenance is SHA-256 locked. Runner-provided execution-alignment targets
+are stored in the registered experiment metadata, preserved by an explicit
+family-gate rerun, and consumed by post-run attribution. Trade behavior defaults
+to the primary-cost artifacts referenced by that same registered experiment.
 
 Old manually named windows such as `bull_home`, `range_home`, `bear_home`, and
 `high_vol_hostile` are quarantined. Their old reports may remain as raw

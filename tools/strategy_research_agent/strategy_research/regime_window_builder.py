@@ -23,12 +23,14 @@ import pandas as pd
 
 PAIRS = ["BTC_USDT_USDT", "ETH_USDT_USDT"]
 REGIME_LABELS = ["bull", "bear", "range", "high_vol"]
-MANIFEST_VERSION = 2
+MANIFEST_VERSION = 4
 MIN_WINDOW_DAYS = 45
 WINDOW_LENGTHS = [60, 75, 90]
 MIN_ACTIVE_LABEL_SHARE = 0.55
 MAX_EPISODES_PER_LABEL = 3
-MAX_EPISODE_OVERLAP_SHARE = 0.25
+# Validation episodes must be independent date slices.  Even a modest overlap
+# double-counts the same trades and overstates cross-episode robustness.
+MAX_EPISODE_OVERLAP_SHARE = 0.0
 DATA_FRESHNESS_WARN_HOURS = 24.0
 DATA_FRESHNESS_FAIL_HOURS = 72.0
 LEGACY_REGIME_TOKENS = [
@@ -116,27 +118,26 @@ def resample_to_1h(frame: pd.DataFrame) -> pd.DataFrame:
     return hourly.dropna(subset=["open", "high", "low", "close"])
 
 
+def rolling_percentile(
+    series: pd.Series,
+    window: int = 365,
+    min_periods: int = 120,
+) -> pd.Series:
+    """Return a causal percentile using only observations available that day."""
+    return series.rolling(window, min_periods=min_periods).apply(
+        lambda values: float((values <= values[-1]).sum()) / len(values),
+        raw=True,
+    )
+
+
 def load_pair_1h(pair: str) -> tuple[pd.DataFrame, str]:
     preferred = DATA_DIR / f"{pair}-1h-futures.feather"
-    freshest_frame: pd.DataFrame | None = None
-    freshest_source: str | None = None
-    freshest_end: pd.Timestamp | None = None
     if preferred.exists():
-        preferred_frame = read_ohlcv(preferred)
-        freshest_frame = preferred_frame
-        freshest_source = rel(preferred)
-        freshest_end = preferred_frame.index.max()
+        return read_ohlcv(preferred), rel(preferred)
     for timeframe in ["15m", "5m", "1m"]:
         path = DATA_DIR / f"{pair}-{timeframe}-futures.feather"
         if path.exists():
-            frame = read_ohlcv(path)
-            end = frame.index.max()
-            if freshest_end is None or end > freshest_end:
-                freshest_frame = resample_to_1h(frame)
-                freshest_source = f"{rel(path)} resampled_to_1h"
-                freshest_end = end
-    if freshest_frame is not None and freshest_source is not None:
-        return freshest_frame, freshest_source
+            return resample_to_1h(read_ohlcv(path)), f"{rel(path)} resampled_to_1h"
     raise FileNotFoundError(f"Missing 1h/15m/5m/1m futures data for {pair}")
 
 
@@ -171,12 +172,12 @@ def daily_features(pair: str) -> tuple[pd.DataFrame, str]:
     ).max(axis=1)
     daily["atr_pct"] = true_range.ewm(alpha=1 / 14, adjust=False).mean() / daily["close"]
     daily["realized_vol_30d"] = daily["ret_1d"].rolling(30, min_periods=20).std() * math.sqrt(365)
-    daily["realized_vol_pctile"] = daily["realized_vol_30d"].rank(pct=True)
-    daily["atr_pctile"] = daily["atr_pct"].rank(pct=True)
+    daily["realized_vol_pctile"] = rolling_percentile(daily["realized_vol_30d"])
+    daily["atr_pctile"] = rolling_percentile(daily["atr_pct"])
     mid = daily["close"].rolling(20, min_periods=15).mean()
     std = daily["close"].rolling(20, min_periods=15).std()
     daily["bb_width"] = (4 * std) / mid
-    daily["bb_width_pctile"] = daily["bb_width"].rank(pct=True)
+    daily["bb_width_pctile"] = rolling_percentile(daily["bb_width"])
     daily["trend_efficiency_30d"] = (
         (daily["close"] - daily["close"].shift(30)).abs()
         / daily["close"].diff().abs().rolling(30, min_periods=20).sum()
@@ -207,7 +208,8 @@ def combined_features() -> tuple[pd.DataFrame, dict[str, str]]:
     return data, sources
 
 
-def label_daily(row: pd.Series) -> str:
+def labels_daily(row: pd.Series) -> tuple[str, ...]:
+    labels: list[str] = []
     high_vol = row["combined_vol_pctile"] >= 0.82 or row["combined_atr_pctile"] >= 0.82
     bull = (
         row["combined_ret_60d"] >= 0.16
@@ -222,24 +224,43 @@ def label_daily(row: pd.Series) -> str:
         and row["direction_agreement_60d"] >= 1.0
     )
     range_bound = (
-        abs(row["combined_ret_60d"]) <= 0.12
-        and abs(row["combined_ema_gap"]) <= 0.040
-        and row["combined_trend_efficiency"] <= 0.36
-        and row["combined_vol_pctile"] <= 0.72
+        abs(row["combined_ret_30d"]) <= 0.08
+        and abs(row["combined_ret_60d"]) <= 0.16
+        and abs(row["btc_ret_60d"]) <= 0.16
+        and abs(row["eth_ret_60d"]) <= 0.16
+        and abs(row["combined_ema_gap"]) <= 0.050
+        and row["combined_trend_efficiency"] <= 0.32
+        and row["combined_vol_pctile"] <= 0.75
     )
-    if high_vol:
-        return "high_vol"
     if bull:
-        return "bull"
-    if bear:
-        return "bear"
-    if range_bound:
-        return "range"
-    return "mixed"
+        labels.append("bull")
+    elif bear:
+        labels.append("bear")
+    elif range_bound:
+        labels.append("range")
+    if high_vol:
+        labels.append("high_vol")
+    return tuple(labels or ["mixed"])
+
+
+def label_mask(window: pd.DataFrame, label: str) -> pd.Series:
+    return window["daily_labels"].map(lambda labels: label in labels)
+
+
+def window_direction_matches_label(label: str, window: pd.DataFrame) -> bool:
+    btc_return = float(window["btc_close"].iloc[-1] / window["btc_close"].iloc[0] - 1.0)
+    eth_return = float(window["eth_close"].iloc[-1] / window["eth_close"].iloc[0] - 1.0)
+    if label == "bull":
+        return btc_return > 0 and eth_return > 0
+    if label == "bear":
+        return btc_return < 0 and eth_return < 0
+    if label == "range":
+        return abs(btc_return) <= 0.20 and abs(eth_return) <= 0.20
+    return True
 
 
 def score_window(label: str, window: pd.DataFrame) -> float:
-    share = float((window["daily_label"] == label).mean())
+    share = float(label_mask(window, label).mean())
     ret = float(window["combined_ret_60d"].iloc[-1])
     ema_gap = float(window["combined_ema_gap"].mean())
     vol = float(window["combined_vol_pctile"].mean())
@@ -259,7 +280,10 @@ def score_window(label: str, window: pd.DataFrame) -> float:
 
 def summarize_window(label: str, data: pd.DataFrame, start: pd.Timestamp, end: pd.Timestamp) -> dict[str, Any]:
     window = data.loc[start:end]
-    counts = window["daily_label"].value_counts().to_dict()
+    counts = {
+        candidate: int(label_mask(window, candidate).sum())
+        for candidate in [*REGIME_LABELS, "mixed"]
+    }
     days = int(len(window))
     label_share = float(counts.get(label, 0) / days) if days else 0.0
     confidence = "high" if label_share >= 0.70 else "medium" if label_share >= 0.55 else "low"
@@ -312,7 +336,7 @@ def select_windows(data: pd.DataFrame) -> list[dict[str, Any]]:
             "combined_trend_efficiency",
         ]
     ).copy()
-    clean["daily_label"] = clean.apply(label_daily, axis=1)
+    clean["daily_labels"] = clean.apply(labels_daily, axis=1)
     windows: list[dict[str, Any]] = []
     for label in REGIME_LABELS:
         candidates: list[tuple[float, pd.Timestamp, pd.Timestamp]] = []
@@ -323,8 +347,10 @@ def select_windows(data: pd.DataFrame) -> list[dict[str, Any]]:
                 window = clean.iloc[end_idx - length + 1 : end_idx + 1]
                 if len(window) < MIN_WINDOW_DAYS:
                     continue
-                share = float((window["daily_label"] == label).mean())
+                share = float(label_mask(window, label).mean())
                 if share < 0.35:
+                    continue
+                if not window_direction_matches_label(label, window):
                     continue
                 start = window.index[0]
                 end = window.index[-1]
@@ -373,13 +399,66 @@ def select_windows(data: pd.DataFrame) -> list[dict[str, Any]]:
     return windows
 
 
+def dedupe_overlapping_windows(windows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    confidence_rank = {"high": 3, "medium": 2, "low": 1, "none": 0}
+    ranked = sorted(
+        windows,
+        key=lambda item: (
+            confidence_rank.get(str(item.get("confidence")), 0),
+            float((item.get("evidence") or {}).get("label_share") or 0.0),
+            int(item.get("days") or 0),
+        ),
+        reverse=True,
+    )
+    selected: list[dict[str, Any]] = []
+    for window in ranked:
+        start = pd.Timestamp(window["start"])
+        end = pd.Timestamp(window["end"])
+        if any(
+            overlap_share(
+                start,
+                end,
+                pd.Timestamp(existing["start"]),
+                pd.Timestamp(existing["end"]),
+            )
+            > MAX_EPISODE_OVERLAP_SHARE
+            for existing in selected
+        ):
+            continue
+        selected.append(window)
+    return selected
+
+
 def family_window_roles(windows: list[dict[str, Any]]) -> dict[str, dict[str, list[str]]]:
     active = [window for window in windows if window.get("status") == "active"]
     roles: dict[str, dict[str, list[str]]] = {}
     for family, home_labels in FAMILY_HOME_LABELS.items():
-        home = [window["name"] for window in active if window.get("label") in home_labels]
-        hostile = [window["name"] for window in active if window.get("label") not in home_labels]
-        roles[family] = {"home": home, "hostile": hostile}
+        home_windows = dedupe_overlapping_windows(
+            [window for window in active if window.get("label") in home_labels]
+        )
+        hostile_windows = []
+        for window in active:
+            if window.get("label") in home_labels:
+                continue
+            start = pd.Timestamp(window["start"])
+            end = pd.Timestamp(window["end"])
+            overlaps_home = any(
+                overlap_share(
+                    start,
+                    end,
+                    pd.Timestamp(home["start"]),
+                    pd.Timestamp(home["end"]),
+                )
+                > MAX_EPISODE_OVERLAP_SHARE
+                for home in home_windows
+            )
+            if not overlaps_home:
+                hostile_windows.append(window)
+        hostile_windows = dedupe_overlapping_windows(hostile_windows)
+        roles[family] = {
+            "home": [window["name"] for window in home_windows],
+            "hostile": [window["name"] for window in hostile_windows],
+        }
     return roles
 
 
@@ -428,6 +507,8 @@ def build_payload() -> dict[str, Any]:
         "research_only": True,
         "data_sources": sources,
         "feature_timeframe": "1h",
+        "label_model": "direction_state_plus_orthogonal_high_vol_overlay",
+        "feature_causality": "rolling_365d_percentiles_without_future_observations",
         "daily_rows": int(len(data)),
         "date_range": {
             "start": data.index.min().strftime("%Y-%m-%d"),
@@ -441,8 +522,8 @@ def build_payload() -> dict[str, Any]:
         "label_definitions": {
             "bull": "positive 60d BTC/ETH aligned trend, positive EMA gap, directional efficiency",
             "bear": "negative 60d BTC/ETH aligned trend, negative EMA gap, directional efficiency",
-            "range": "low 60d direction, flat EMA gap, low trend efficiency, non-extreme volatility",
-            "high_vol": "realized volatility or ATR percentile in the top regime bucket",
+            "range": "neutral 30d/60d BTC/ETH returns, flat EMA gap, low trend efficiency, non-extreme volatility",
+            "high_vol": "orthogonal overlay when causal realized-volatility or ATR percentile is in the top bucket",
             "mixed": "not used as home/hostile window candidate",
         },
         "windows": windows,
@@ -453,6 +534,7 @@ def build_payload() -> dict[str, Any]:
             "legacy_hardcoded_windows_allowed": False,
             "minimum_active_label_share": MIN_ACTIVE_LABEL_SHARE,
             "max_episodes_per_label": MAX_EPISODES_PER_LABEL,
+            "max_episode_overlap_share": MAX_EPISODE_OVERLAP_SHARE,
         },
     }
     return payload
@@ -556,6 +638,49 @@ def load_regime_manifest(path: Path = LATEST_JSON) -> dict[str, Any]:
     return payload
 
 
+def active_windows_for_label(
+    label: str,
+    manifest: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    if label not in REGIME_LABELS:
+        raise ValueError(f"Unsupported regime label: {label}")
+    payload = manifest or load_regime_manifest()
+    windows = [
+        item
+        for item in payload.get("windows", [])
+        if item.get("label") == label and item.get("status") == "active"
+    ]
+    if not windows:
+        raise ValueError(f"No active regime windows for label: {label}")
+    return windows
+
+
+def timeframe_duration(timeframe: str) -> pd.Timedelta:
+    if timeframe.endswith("m"):
+        return pd.Timedelta(minutes=int(timeframe[:-1]))
+    if timeframe.endswith("h"):
+        return pd.Timedelta(hours=int(timeframe[:-1]))
+    raise ValueError(f"Unsupported timeframe: {timeframe}")
+
+
+def regime_entry_mask(
+    frame: pd.DataFrame,
+    label: str,
+    horizon_bars: int,
+    timeframe: str,
+    manifest: dict[str, Any] | None = None,
+) -> pd.Series:
+    """Select entries whose complete forward horizon remains inside an active window."""
+    dates = pd.to_datetime(frame["date"], utc=True)
+    mask = pd.Series(False, index=frame.index)
+    horizon = timeframe_duration(timeframe) * horizon_bars
+    for window in active_windows_for_label(label, manifest):
+        start = pd.Timestamp(window["start"], tz="UTC")
+        end_exclusive = pd.Timestamp(window["end"], tz="UTC") + pd.Timedelta(days=1)
+        mask |= (dates >= start) & ((dates + horizon) < end_exclusive)
+    return mask
+
+
 def validate_manifest(payload: dict[str, Any]) -> list[RegimeCheck]:
     checks: list[RegimeCheck] = []
     def add(name: str, status: str, detail: str) -> None:
@@ -627,7 +752,7 @@ def check_manifest_status(path: Path = LATEST_JSON) -> list[RegimeCheck]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
         checks = validate_manifest(payload)
-    except Exception as exc:  # noqa: BLE001 - gate must surface local manifest problems.
+    except Exception as exc:
         return [RegimeCheck("regime_manifest", "fail", f"{type(exc).__name__}: {exc}")]
     checks.insert(0, RegimeCheck("regime_manifest", "ok", rel(path)))
     return checks

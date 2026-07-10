@@ -4,16 +4,19 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import zipfile
-from collections import Counter, defaultdict
+from collections import defaultdict
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-
-from repo_paths import find_repo_root
 from statistics import median
 from typing import Any
+
+from cost_model import is_primary_scenario
+from experiment_provenance import resolve_experiment
+from repo_paths import find_repo_root
 
 
 REPO_ROOT = find_repo_root()
@@ -77,6 +80,15 @@ def load_json(path: Path) -> dict[str, Any]:
 
 
 def default_zips() -> list[Path]:
+    try:
+        experiment_csv, _ = resolve_experiment(register_explicit=False)
+    except (FileNotFoundError, ValueError):
+        experiment_csv = None
+    if experiment_csv is not None:
+        experiment_paths = zips_from_experiment_csv(experiment_csv)
+        if experiment_paths:
+            return experiment_paths
+
     payload = load_json(COST_ESTIMATE)
     paths = []
     seen = set()
@@ -85,6 +97,27 @@ def default_zips() -> list[Path]:
         if path.exists() and path not in seen:
             paths.append(path)
             seen.add(path)
+    return paths
+
+
+def zips_from_experiment_csv(csv_path: Path) -> list[Path]:
+    paths: list[Path] = []
+    seen: set[Path] = set()
+    with csv_path.open(encoding="utf-8") as handle:
+        for row in csv.DictReader(handle):
+            scenario = row.get("scenario") or ""
+            if scenario and not is_primary_scenario(scenario):
+                continue
+            artifact = row.get("artifact") or ""
+            if not artifact:
+                continue
+            path = Path(artifact)
+            if not path.is_absolute():
+                path = REPO_ROOT / path
+            path = path.resolve()
+            if path.exists() and path not in seen:
+                paths.append(path)
+                seen.add(path)
     return paths
 
 

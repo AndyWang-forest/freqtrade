@@ -9,10 +9,9 @@ import shutil
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
-
-from repo_paths import find_repo_root
 from typing import Any
 
+from repo_paths import find_repo_root
 from strategy_taxonomy import classify_strategy_family
 
 
@@ -182,6 +181,28 @@ def node_from_current(item: dict[str, Any], gate_row: dict[str, Any]) -> dict[st
     }
 
 
+def node_from_gate_evidence(name: str, gate_row: dict[str, Any], gate: dict[str, Any]) -> dict[str, Any]:
+    source_csv = str(gate.get("source_csv") or "")
+    evidence: dict[str, Any] = {}
+    if source_csv:
+        evidence["family_risk_gate_experiment"] = source_csv
+    if gate_row.get("artifact"):
+        evidence["backtest_artifact"] = gate_row["artifact"]
+    node = node_from_current(
+        {
+            "name": name,
+            "family": gate_row.get("strategy_family"),
+            "state": gate_row.get("state") or gate_row.get("verdict"),
+            "source": "family_risk_gate",
+            "evidence": evidence,
+        },
+        gate_row,
+    )
+    node["generation"] = "registered_family_gate_experiment"
+    node["pool_status"] = "research_evidence"
+    return node
+
+
 def node_from_pool(pool: str, path: Path, card: dict[str, Any]) -> dict[str, Any]:
     name = card.get("strategy") or card.get("name") or path.stem
     family = card.get("family") or classify_strategy_family(name, card.get("hypothesis"))
@@ -259,12 +280,18 @@ def build_payload() -> dict[str, Any]:
     gate_rows, gate = load_family_gate()
     current_nodes = [node_from_current(item, gate_rows.get(item.get("name") or item.get("strategy") or "", {})) for item in registry.get("strategies", [])]
     current_names = {item["name"] for item in current_nodes}
+    experiment_nodes = [
+        node_from_gate_evidence(name, gate_row, gate)
+        for name, gate_row in gate_rows.items()
+        if name and name not in current_names
+    ]
+    known_names = current_names | {item["name"] for item in experiment_nodes}
     historical_nodes = [
         node_from_pool(pool, path, card)
         for pool, path, card in collect_pool_cards()
-        if (card.get("strategy") or card.get("name") or path.stem) not in current_names
+        if (card.get("strategy") or card.get("name") or path.stem) not in known_names
     ]
-    nodes = current_nodes + historical_nodes
+    nodes = current_nodes + experiment_nodes + historical_nodes
     attach_children(nodes)
     by_state = Counter(node.get("recommended_state") or "" for node in nodes)
     by_generation = Counter(node.get("generation") or "" for node in nodes)
@@ -273,8 +300,8 @@ def build_payload() -> dict[str, Any]:
         "generated_at_utc": datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ"),
         "strategy_count": len(nodes),
         "root_count": len(roots),
-        "current_scope": "current registry candidates plus historical evidence pools",
-        "policy": "Current registry strategies are active. Historical pool nodes are evidence only and must not be treated as active candidates.",
+        "current_scope": "current registry candidates plus registered family-gate experiments and historical evidence pools",
+        "policy": "Current registry strategies are active. Registered experiments and historical pool nodes are evidence only and must not be treated as active candidates.",
         "summary": {
             "by_recommended_state": dict(by_state),
             "by_generation": dict(by_generation),

@@ -16,8 +16,8 @@ from typing import Any
 
 import pandas as pd
 import talib.abstract as ta
-
 from pair_universe import pairs_for_scope
+from regime_window_builder import REGIME_LABELS, active_windows_for_label, regime_entry_mask
 from repo_paths import find_repo_root
 
 
@@ -66,7 +66,8 @@ def pair_to_stem(pair: str) -> str:
 def output_stem(payload: dict[str, Any]) -> str:
     scope = str(payload["pair_scope"]).replace("/", "_").replace(":", "_")
     timeframe = str(payload["timeframe"]).replace("/", "_").replace(":", "_")
-    return f"event_study_{payload['generated_at_utc']}_{timeframe}_{scope}"
+    regime = str(payload.get("regime_label") or "all")
+    return f"event_study_{payload['generated_at_utc']}_{timeframe}_{scope}_{regime}"
 
 
 def load_pair(pair: str, timeframe: str) -> pd.DataFrame:
@@ -78,8 +79,21 @@ def load_pair(pair: str, timeframe: str) -> pd.DataFrame:
     return frame.sort_values("date").reset_index(drop=True)
 
 
-def add_indicators(frame: pd.DataFrame) -> pd.DataFrame:
+def timeframe_minutes(timeframe: str) -> int:
+    if timeframe.endswith("m"):
+        return int(timeframe[:-1])
+    if timeframe.endswith("h"):
+        return int(timeframe[:-1]) * 60
+    raise ValueError(f"Unsupported timeframe: {timeframe}")
+
+
+def rolling_days_bars(timeframe: str, days: int) -> int:
+    return max(days * 24 * 60 // timeframe_minutes(timeframe), 1)
+
+
+def add_indicators(frame: pd.DataFrame, timeframe: str = "15m") -> pd.DataFrame:
     frame = frame.copy()
+    q80_window = rolling_days_bars(timeframe, 24)
     frame["ema_6"] = ta.EMA(frame, timeperiod=6)
     frame["ema_12"] = ta.EMA(frame, timeperiod=12)
     frame["ema_24"] = ta.EMA(frame, timeperiod=24)
@@ -91,6 +105,8 @@ def add_indicators(frame: pd.DataFrame) -> pd.DataFrame:
     frame["ret_12"] = frame["close"] / frame["close"].shift(12) - 1.0
     frame["ret_36"] = frame["close"] / frame["close"].shift(36) - 1.0
     frame["volume_ratio"] = frame["volume"] / frame["volume"].rolling(24).mean()
+    frame["atr_q80_24d"] = frame["atr_pct"].rolling(q80_window).quantile(0.80)
+    frame["volume_ratio_q80_24d"] = frame["volume_ratio"].rolling(q80_window).quantile(0.80)
     frame["high_36_prev"] = frame["high"].rolling(36).max().shift(1)
     frame["low_36_prev"] = frame["low"].rolling(36).min().shift(1)
     frame["down_count_6"] = (frame["close"] < frame["open"]).rolling(6).sum()
@@ -114,6 +130,10 @@ def event_masks(frame: pd.DataFrame) -> dict[str, pd.Series]:
         & (frame["low"].rolling(6).min() <= frame["ema_24"] * 1.001)
         & (frame["close"] > frame["ema_6"])
         & (frame["close"] > frame["open"])
+    )
+    pullback_atr_q80_long = pullback_long & (frame["atr_pct"] >= frame["atr_q80_24d"])
+    pullback_volume_q80_long = pullback_long & (
+        frame["volume_ratio"] >= frame["volume_ratio_q80_24d"]
     )
     pullback_short = (
         liquid
@@ -155,6 +175,8 @@ def event_masks(frame: pd.DataFrame) -> dict[str, pd.Series]:
     )
     return {
         "pullback_resume_long": pullback_long,
+        "pullback_resume_atr_q80_long": pullback_atr_q80_long,
+        "pullback_resume_volume_q80_long": pullback_volume_q80_long,
         "pullback_resume_short": pullback_short,
         "false_break_long": false_break_long,
         "false_break_short": false_break_short,
@@ -224,17 +246,34 @@ def study_event(frame: pd.DataFrame, mask: pd.Series, event: str, pair: str, sid
     )
 
 
-def run_event_study(pairs: list[str], timeframe: str, min_samples: int, pair_scope: str) -> dict[str, Any]:
+def run_event_study(
+    pairs: list[str],
+    timeframe: str,
+    min_samples: int,
+    pair_scope: str,
+    regime_label: str | None,
+) -> dict[str, Any]:
     results: list[EventResult] = []
     for pair in pairs:
-        frame = add_indicators(load_pair(pair, timeframe))
+        frame = add_indicators(load_pair(pair, timeframe), timeframe)
+        regime_mask = (
+            regime_entry_mask(frame, regime_label, 12, timeframe)
+            if regime_label
+            else pd.Series(True, index=frame.index)
+        )
         for event_name, mask in event_masks(frame).items():
             side = "short" if event_name.endswith("_short") else "long"
-            results.append(study_event(frame, mask, event_name, pair, side, min_samples))
+            results.append(
+                study_event(frame, mask & regime_mask, event_name, pair, side, min_samples)
+            )
     return {
         "generated_at_utc": utc_stamp(),
         "timeframe": timeframe,
         "pair_scope": pair_scope,
+        "regime_label": regime_label,
+        "regime_windows": [
+            item["name"] for item in active_windows_for_label(regime_label)
+        ] if regime_label else [],
         "pairs": pairs,
         "min_samples": min_samples,
         "edge_gate": {
@@ -260,6 +299,8 @@ def write_markdown(payload: dict[str, Any], path: Path) -> None:
         f"- Generated UTC: `{payload['generated_at_utc']}`",
         f"- Timeframe: `{payload['timeframe']}`",
         f"- Pair scope: `{payload['pair_scope']}`",
+        f"- Regime label: `{payload['regime_label'] or 'all'}`",
+        f"- Active regime windows: `{', '.join(payload['regime_windows']) or 'all data'}`",
         f"- Pairs: `{', '.join(payload['pairs'])}`",
         "- Extension pairs are research-generalization evidence only; they do not enter dry-run or registry without separate gates.",
         "",
@@ -287,6 +328,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--pairs", nargs="+", default=None, help="Explicit pair override.")
     parser.add_argument("--timeframe", default="5m")
     parser.add_argument("--min-samples", type=int, default=200)
+    parser.add_argument(
+        "--regime-label",
+        choices=REGIME_LABELS,
+        default=None,
+        help="Evaluate events only inside active data-derived regime windows.",
+    )
     return parser.parse_args()
 
 
@@ -295,7 +342,13 @@ def main() -> None:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     pairs = args.pairs if args.pairs is not None else pairs_for_scope(args.pair_scope)
     pair_scope = "explicit" if args.pairs is not None else args.pair_scope
-    payload = run_event_study(pairs, args.timeframe, args.min_samples, pair_scope)
+    payload = run_event_study(
+        pairs,
+        args.timeframe,
+        args.min_samples,
+        pair_scope,
+        args.regime_label,
+    )
     json_path = OUTPUT_DIR / f"{output_stem(payload)}.json"
     md_path = OUTPUT_DIR / f"{output_stem(payload)}.md"
     rendered_json = json.dumps(payload, indent=2, ensure_ascii=False)

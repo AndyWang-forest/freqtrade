@@ -6,9 +6,9 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from repo_paths import find_repo_root
-from typing import Any
 
 
 REPO_ROOT = find_repo_root()
@@ -38,6 +38,7 @@ def load_json(path: Path) -> dict[str, Any]:
 
 def build_payload() -> dict[str, Any]:
     factor_report = load_json(FACTOR_JSON)
+    regime_label = factor_report.get("regime_label")
     candidates = factor_report.get("edge_candidates", [])
     hypotheses = []
     for index, item in enumerate(candidates, start=1):
@@ -50,6 +51,8 @@ def build_payload() -> dict[str, Any]:
                 "side": item["side"],
                 "factor": item["factor"],
                 "source": "factor_research",
+                "regime_label": regime_label,
+                "regime_windows": list(factor_report.get("regime_windows") or []),
                 "evidence": {
                     "sample": item["sample"],
                     "mean_after_fee_pct": item["mean_after_fee_pct"],
@@ -64,6 +67,7 @@ def build_payload() -> dict[str, Any]:
         "generated_at_utc": now_utc(),
         "research_only": True,
         "factor_report": rel(FACTOR_JSON) if factor_report else None,
+        "regime_label": regime_label,
         "hypotheses": hypotheses,
         "summary": {
             "factor_candidates": len(candidates),
@@ -81,6 +85,7 @@ def write_markdown(path: Path, payload: dict[str, Any]) -> None:
         f"- Generated UTC: `{payload['generated_at_utc']}`",
         f"- Factor report: `{payload.get('factor_report')}`",
         f"- Verdict: `{payload['summary']['verdict']}`",
+        f"- Regime label: `{payload.get('regime_label') or 'all'}`",
         "",
         "## Hypotheses",
         "",

@@ -154,6 +154,17 @@ explicit `--csv` or the SHA-256-locked
 `user_data/strategy_research/reports/latest_experiment_source.json`; it must
 never infer the intended experiment from file modification time.
 
+Validation episodes for one family must be calendar-independent: selected home
+episodes may be adjacent but must not overlap. Causal indicators are calculated
+with history available at the decision timestamp, and a forward event-study
+horizon must remain fully inside the selected regime window.
+
+When a runner supplies execution-alignment targets in experiment provenance,
+an explicit family-gate rerun must preserve that metadata. Post-run attribution
+must consume targets and primary-cost backtest artifacts from the same
+SHA-256-locked experiment source; stale mutable target files must not override
+the registered experiment.
+
 Legacy labels such as `bull_home`, `range_home`, `bear_home`, and
 `high_vol_hostile` are quarantined. Old reports may still be used as raw
 date-range backtest evidence, but their regime interpretation is
