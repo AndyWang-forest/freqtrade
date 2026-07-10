@@ -168,7 +168,7 @@ def resolve_horizon_bars(module: Any, timeframe: str, horizon: str) -> int:
     return max(minutes // timeframe_minutes(timeframe), 1)
 
 
-def build_events(target: dict[str, Any]) -> tuple[pd.DataFrame, pd.Series, pd.Series, str]:
+def build_events(target: dict[str, Any]) -> tuple[pd.DataFrame, pd.Series, pd.Series, str, pd.Timestamp]:
     module = load_module(REPO_ROOT / target["event_module"])
     pair_key = target["pair_key"]
     timeframe = target["timeframe"]
@@ -176,6 +176,11 @@ def build_events(target: dict[str, Any]) -> tuple[pd.DataFrame, pd.Series, pd.Se
     side_override = target.get("side")
     df = build_frame(module, pair_key, timeframe)
     df["date"] = pd.to_datetime(df["date"], utc=True)
+    startup_candles = int(target.get("startup_candles", 0))
+    if df.empty or len(df) <= startup_candles:
+        warmup_cutoff = pd.Timestamp.max.tz_localize("UTC")
+    else:
+        warmup_cutoff = df.iloc[startup_candles]["date"]
     start, end = parse_timerange(target["timerange"])
     df = df[(df["date"] >= start) & (df["date"] < end)].copy()
     if hasattr(module, "event_masks"):
@@ -193,7 +198,7 @@ def build_events(target: dict[str, Any]) -> tuple[pd.DataFrame, pd.Series, pd.Se
     mask = event_tuple[-1].fillna(False)
     horizon_bars = resolve_horizon_bars(module, timeframe, target.get("horizon", "8h"))
     ret = event_forward_stats(module, df, mask, side, horizon_bars)
-    return df, mask, ret, family
+    return df, mask, ret, family, warmup_cutoff
 
 
 def trade_open_time(trade: dict[str, Any]) -> pd.Timestamp:
@@ -212,15 +217,12 @@ def classify_target(target: dict[str, Any]) -> tuple[dict[str, Any], list[Alignm
     artifact = REPO_ROOT / target["artifact"]
     strategy = target["strategy"]
     trades = load_trades(artifact, strategy)
-    df, mask, ret, family = build_events(target)
+    df, mask, ret, family, warmup_cutoff = build_events(target)
 
     tf_minutes = timeframe_minutes(target["timeframe"])
     lag = int(target.get("entry_lag_candles", 1))
     tolerance = pd.Timedelta(minutes=tf_minutes * int(target.get("match_tolerance_candles", 2)))
     pair = target["pair"]
-    startup_candles = int(target.get("startup_candles", 0))
-    warmup_cutoff = df.iloc[min(startup_candles, max(len(df) - 1, 0))]["date"] if len(df) else pd.Timestamp.max.tz_localize("UTC")
-
     trade_rows = []
     for trade in trades:
         if trade.get("pair") and trade.get("pair") != pair:
