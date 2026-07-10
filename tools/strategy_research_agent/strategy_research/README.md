@@ -121,8 +121,10 @@ user_data/strategy_research/start_manual_research.sh --current-market-router
 user_data/strategy_research/start_manual_research.sh --agent-brain
 user_data/strategy_research/start_manual_research.sh --weekly-knowledge-update
 user_data/strategy_research/start_manual_research.sh --walk-forward
-user_data/strategy_research/start_manual_research.sh --promotion-gate
-user_data/strategy_research/start_manual_research.sh --family-risk-gate
+user_data/strategy_research/start_manual_research.sh --promotion-gate \
+  --extra-agent-arg --csv --extra-agent-arg user_data/strategy_research/reports/<experiment>.csv
+user_data/strategy_research/start_manual_research.sh --family-risk-gate \
+  --extra-agent-arg --csv --extra-agent-arg user_data/strategy_research/reports/<experiment>.csv
 user_data/strategy_research/start_manual_research.sh --a1-external-permission
 user_data/strategy_research/start_manual_research.sh --trade-behavior
 user_data/strategy_research/start_manual_research.sh --failure-attribution
@@ -186,8 +188,10 @@ does not change dry-run/live config and does not promote a strategy without the
 separate dry-run risk preflight and manual approval step.
 
 `family_risk_gate.py` accepts both older main/walk-forward/regime CSVs and
-newer manifest/recent CSV rows. Manifest bear rows can serve as target-regime
-evidence; manifest non-bear rows serve as hostile evidence. Rows that only have
+newer manifest/recent CSV rows. Manifest family-home rows serve as target-regime
+evidence and other active labels serve as hostile evidence. The first explicit
+`--csv` run writes a SHA-256-locked source pointer; later reruns reuse that exact
+content and fail if it changes. Rows that only have
 aggregate simulation are allowed for research reporting, but rows with trades
 still require trade-level artifacts before dry-run review.
 

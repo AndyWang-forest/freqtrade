@@ -12,9 +12,9 @@ import json
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from repo_paths import find_repo_root
-from typing import Any
 
 
 REPO_ROOT = find_repo_root()
@@ -87,6 +87,21 @@ PAIR_UNIVERSE_POLICY = {
         "unstable or non-crypto derivative contracts",
     ],
     "rule": "BTC/ETH remain the default core research and dry-run review universe. SOL/BNB/XRP are explicit high-liquidity research-extension pairs for generalization and event validation only; they do not enter registry, dry-run, or live review without separate family-risk, promotion, and dryrun-risk gates. High liquidity is necessary but not sufficient; excluded classes stay out even when volume is high.",
+}
+REGIME_WINDOW_POLICY = {
+    "active_manifest": "user_data/strategy_research/regime_windows/latest_regime_windows.json",
+    "quarantine_manifest": "user_data/strategy_research/regime_windows/regime_inference_quarantine.json",
+    "source": "data_derived_btc_eth_futures_ohlcv",
+    "minimum_active_label_share": 0.55,
+    "max_episodes_per_label": 3,
+    "experiment_source_pointer": "user_data/strategy_research/reports/latest_experiment_source.json",
+    "stress_home_total_floor_pct": -10.0,
+    "stress_home_worst_floor_pct": -15.0,
+    "rule": (
+        "Only confidence-qualified primary and independent validation episodes may drive family gates. "
+        "Experiment input must be explicit or SHA-256 locked; realistic cost is the edge screen and "
+        "stress cost must remain inside the explicit safety floors."
+    ),
 }
 
 
@@ -298,6 +313,8 @@ def build_payload() -> dict[str, Any]:
             "No event-study edge may support promotion unless event-to-Freqtrade execution alignment explains whether the signal became actual trades under startup, order, max-open-trades, protection, and exit rules.",
             "No backtest round can feed the next experiment queue until post-run attribution has identified signal, timing, exit, cost, risk, regime, and sample-size failure modes.",
             "Regime windows must come from user_data/strategy_research/regime_windows/latest_regime_windows.json; legacy hardcoded bull_home/range_home/bear_home/high_vol_hostile windows are quarantined and cannot fuel strategy generation or promotion.",
+            "No family-risk or promotion gate may choose an experiment CSV by modification time; use an explicit path or the SHA-256-locked experiment source pointer.",
+            "No low-confidence regime window with label_share below 0.55 may act as active home/hostile promotion evidence.",
             "Every experiment round must run the current market-state family router before choosing which strategy family to research; no-trade is a valid router decision.",
             "No new fixed-50x futures strategy may use 1h or higher candles as its primary entry timeframe; use 3m/5m/15m for entry and 1h only for background confirmation.",
             "No strategy reaches dry-run review without manual approval after promotion gate.",
@@ -316,6 +333,8 @@ def build_payload() -> dict[str, Any]:
             "Treat the knowledge graph as a multi-domain external brain: price action, regime, derivatives, microstructure, cross-asset, and execution domains must all be available before normal strategy research.",
             "When a hypothesis uses funding, OI, liquidation, spread/slippage, L2/order-book, cross-asset lead-lag, or runtime execution concepts, verify required data coverage before strategy synthesis; otherwise keep it research-only.",
             "Load the data-derived regime manifest and regime inference quarantine before event-study planning, family-risk gates, promotion gates, or strategy generation.",
+            "Aggregate confidence-qualified home validation episodes; do not select only the most profitable regime window.",
+            "Use realistic cost as the primary edge screen and enforce explicit stress safety floors of -10% home total and -15% worst home episode.",
             "Run the current market-state family router before factor research, event study, strategy generation, mature researcher queue execution, family-risk gates, or promotion gates; choose the next strategy family from the router output or default to no-trade.",
             "Do not treat legacy bull_home/range_home/bear_home/high_vol_hostile labels as market truth; old outputs are raw date-range backtests only until relabeled.",
             "Use the versioned pair universe: core BTC/ETH by default, SOL/BNB/XRP only when explicitly requested as extension or research_all scope.",
@@ -384,6 +403,7 @@ def build_operating_rules(payload: dict[str, Any]) -> dict[str, Any]:
         "pair_universe_policy": PAIR_UNIVERSE_POLICY,
         "external_brain_policy": EXTERNAL_BRAIN_POLICY,
         "factor_research_policy": FACTOR_RESEARCH_POLICY,
+        "regime_window_policy": REGIME_WINDOW_POLICY,
         "hard_boundaries": payload["promotion_boundaries"],
         "required_gates": payload["required_gates"],
         "blocked_patterns": payload["blocked_patterns"],

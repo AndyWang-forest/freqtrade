@@ -11,8 +11,8 @@ from __future__ import annotations
 
 import argparse
 import csv
-import inspect
 import importlib.util
+import inspect
 import json
 import sys
 import zipfile
@@ -22,8 +22,8 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
-
 from cost_model import PRIMARY_SCENARIO
+from experiment_provenance import resolve_experiment, sha256_file
 
 
 def find_repo_root() -> Path:
@@ -97,6 +97,18 @@ def parse_timerange(timerange: str) -> tuple[pd.Timestamp, pd.Timestamp]:
 
 def target_from_experiment_csv(target: dict[str, Any]) -> dict[str, Any]:
     csv_path = REPO_ROOT / target["experiment_csv"]
+    expected_hash = target.get("experiment_sha256")
+    if expected_hash:
+        actual_hash = sha256_file(csv_path)
+        if actual_hash != expected_hash:
+            raise RuntimeError(f"Experiment CSV hash mismatch for alignment target: {csv_path}")
+    else:
+        registered_path, _ = resolve_experiment(register_explicit=False)
+        if registered_path.resolve() != csv_path.resolve():
+            raise RuntimeError(
+                "Alignment target uses an unregistered mutable experiment CSV. "
+                "Register the intended CSV with family_risk_gate.py --csv or add experiment_sha256."
+            )
     strategy = target["strategy"]
     window = target["window"]
     scenario = target.get("scenario", PRIMARY_SCENARIO)

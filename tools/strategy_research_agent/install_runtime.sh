@@ -69,6 +69,10 @@ rsync -a \
   "$SOURCE_ROOT/strategy_research/" \
   "$ROOT/user_data/strategy_research/"
 
+"$ROOT/.venv/bin/python" "$SOURCE_ROOT/managed_runtime_files.py" \
+  --source "$SOURCE_ROOT/strategy_research" \
+  --target "$ROOT/user_data/strategy_research"
+
 if [[ -d "$SOURCE_ROOT/strategies/research_generated" ]]; then
   rsync -a --delete \
     --exclude '__pycache__' \

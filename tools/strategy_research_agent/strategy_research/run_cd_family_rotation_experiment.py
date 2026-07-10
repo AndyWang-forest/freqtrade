@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Run C/D strategy-family rotation validation.
+"""Shared Freqtrade backtest utilities for C/D-family research.
 
-This is a coarse hypothesis test for trend pullback and breakout continuation
-families. It intentionally avoids dense threshold tuning.
+The original direct runner used hand-picked regime dates and is retired. New
+experiments may import the reusable Row/run_backtest/summarize helpers, but must
+provide windows from the data-derived regime manifest.
 """
 
 from __future__ import annotations
@@ -13,10 +14,12 @@ import os
 import subprocess
 import zipfile
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from cost_model import DEFAULT_SCENARIOS, PRIMARY_SCENARIO, STRESS_SCENARIO_NAME
+from experiment_provenance import register_experiment
 
 
 def find_repo_root() -> Path:
@@ -58,21 +61,6 @@ STRATEGY_INFO = {
 }
 STRATEGIES = list(STRATEGY_INFO)
 SCENARIOS = DEFAULT_SCENARIOS
-WINDOWS = [
-    ("main", "65d", "20260423-20260628"),
-    ("main", "30d", "20260529-20260628"),
-    ("main", "latest5", "20260623-20260628"),
-    ("main", "weak_week", "20260522-20260529"),
-    ("walk_forward", "wf_20260423_20260515", "20260423-20260515"),
-    ("walk_forward", "wf_20260515_20260605", "20260515-20260605"),
-    ("walk_forward", "wf_20260605_20260628", "20260605-20260628"),
-    ("regime", "bull_20241022_20250120", "20241022-20250120"),
-    ("regime", "range_20240507_20240805", "20240507-20240805"),
-    ("regime", "bear_20251222_20260322", "20251222-20260322"),
-    ("regime", "high_vol_20260118_20260418", "20260118-20260418"),
-]
-
-
 @dataclass
 class Row:
     strategy: str
@@ -225,6 +213,9 @@ def rows_for(rows: list[Row], strategy: str, slice_name: str, scenario: str) -> 
 
 
 def verdict_for(rows: list[Row], strategy: str) -> tuple[str, list[str]]:
+    raise RuntimeError(
+        "Legacy runner-local verdicts are retired. Register the experiment CSV and use family_risk_gate.py."
+    )
     high_main = {row.window: row for row in rows_for(rows, strategy, "main", PRIMARY_SCENARIO)}
     stress_main = rows_for(rows, strategy, "main", STRESS_SCENARIO_NAME)
     high_wf = rows_for(rows, strategy, "walk_forward", PRIMARY_SCENARIO)
@@ -254,17 +245,22 @@ def verdict_for(rows: list[Row], strategy: str) -> tuple[str, list[str]]:
 
 
 def write_csv(rows: list[Row]) -> Path:
-    path = REPORT_DIR / "cd_family_rotation_experiment_20260701T.csv"
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    path = REPORT_DIR / f"cd_family_rotation_experiment_{timestamp}.csv"
     fields = list(Row.__dataclass_fields__.keys())
     with path.open("w", newline="", encoding="utf-8") as fh:
         writer = csv.DictWriter(fh, fieldnames=fields)
         writer.writeheader()
         for row in rows:
             writer.writerow(row.__dict__)
+    register_experiment(path, producer="run_cd_family_rotation_experiment.write_csv")
     return path
 
 
 def write_report(rows: list[Row], csv_path: Path) -> Path:
+    raise RuntimeError(
+        "Legacy runner-local reports are retired. Use the canonical family-risk/promotion report."
+    )
     path = REPORT_DIR / "cd_family_rotation_experiment_20260701T.md"
     lines = [
         "# C/D Strategy Family Rotation Experiment",
@@ -363,20 +359,10 @@ def write_report(rows: list[Row], csv_path: Path) -> Path:
 
 
 def main() -> None:
-    REPORT_DIR.mkdir(parents=True, exist_ok=True)
-    rows: list[Row] = []
-    for slice_name, window, timerange in WINDOWS:
-        for scenario, fee, slippage_bps in SCENARIOS:
-            artifact = run_backtest(timerange, fee)
-            payload = load_payload(artifact)
-            for strategy in STRATEGIES:
-                row = summarize(payload, artifact, strategy, slice_name, window, timerange, scenario, fee, slippage_bps)
-                rows.append(row)
-                print(strategy, scenario, slice_name, window, row.trades, row.adjusted_profit_pct)
-    csv_path = write_csv(rows)
-    report_path = write_report(rows, csv_path)
-    print(rel(csv_path))
-    print(rel(report_path))
+    raise SystemExit(
+        "This legacy direct runner is retired because it used hand-picked regime windows. "
+        "Import its reusable helpers from a manifest-driven experiment instead."
+    )
 
 
 if __name__ == "__main__":

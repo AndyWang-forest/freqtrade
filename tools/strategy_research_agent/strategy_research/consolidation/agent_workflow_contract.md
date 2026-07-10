@@ -29,7 +29,9 @@ Concrete strategy generation is not the first research step. The Agent must firs
 - MFE/MAE distribution;
 - pair, side, timeframe, and regime notes;
 - fee/slippage sensitivity before any candidate promotion.
-- realistic cost is the primary edge screen; stress cost is a safety check and must not be the sole reason to discard otherwise promising liquid-futures evidence.
+- realistic cost is the primary edge screen; stress cost is a safety check, not
+  the primary edge score. Promotion still requires stress evidence, with home
+  episode total no worse than `-10%` and worst episode no worse than `-15%`.
 
 If an event does not clear the edge gate, the Agent may only use it as a counterexample, redesign input, or negative-control experiment. It must not turn that event into another strategy class just because the knowledge card sounds plausible.
 
@@ -119,6 +121,17 @@ returns, EMA structure, realized volatility, ATR%, BB width, trend strength,
 range score, and BTC/ETH directional agreement. Regime matrix, event-study
 context, family-risk gate, promotion gate, and strategy-family routing must use
 this manifest.
+
+Only windows with label share of at least `0.55` may be active. Each label may
+publish one primary window plus up to two sufficiently independent validation
+episodes. Lower-confidence candidates stay visible as
+`insufficient_confidence` and cannot drive promotion. Family gates aggregate
+all active home episodes instead of selecting the most profitable one.
+
+Gate input must also be deterministic. A family/promotion gate may use an
+explicit `--csv` or the SHA-256-locked
+`user_data/strategy_research/reports/latest_experiment_source.json`; it must
+never infer the intended experiment from file modification time.
 
 Legacy labels such as `bull_home`, `range_home`, `bear_home`, and
 `high_vol_hostile` are quarantined. Old reports may still be used as raw

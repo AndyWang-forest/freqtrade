@@ -131,12 +131,15 @@ def build_config(config_path: Path, strategy: str) -> dict[str, Any]:
     return config
 
 
-def registry_strategies(path: Path) -> list[str]:
+def registry_strategies(path: Path, *, eligible_only: bool = False) -> list[str]:
     if not path.exists():
         return []
     registry = load_json(path)
     names: list[str] = []
     for item in registry.get("strategies", []):
+        state = str(item.get("state") or item.get("status") or "")
+        if eligible_only and "dryrun_candidate" not in state:
+            continue
         name = item.get("name") or item.get("strategy") or item.get("strategy_name")
         if name and name not in names:
             names.append(name)
@@ -153,6 +156,10 @@ def selected_strategies(args: argparse.Namespace, config_path: Path) -> list[str
             names.append(config["strategy"])
     if args.all_registry:
         for name in registry_strategies(args.registry):
+            if name not in names:
+                names.append(name)
+    if args.eligible_registry:
+        for name in registry_strategies(args.registry, eligible_only=True):
             if name not in names:
                 names.append(name)
     return names
@@ -460,6 +467,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--registry", type=Path, default=DEFAULT_REGISTRY)
     parser.add_argument("--strategy", action="append", help="Strategy class to audit. Can be repeated.")
     parser.add_argument("--all-registry", action="store_true", help="Audit every strategy in strategy_registry.json too.")
+    parser.add_argument(
+        "--eligible-registry",
+        action="store_true",
+        help="Audit only registry strategies whose state grants dry-run candidate review.",
+    )
     parser.add_argument("--json", action="store_true", help="Print JSON instead of a text summary.")
     parser.add_argument(
         "--report",

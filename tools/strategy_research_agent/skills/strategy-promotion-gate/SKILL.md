@@ -89,7 +89,9 @@ Never promote when:
 
 - missing lookahead/recursive checks
 - only one favorable window works
-- stress cost turns strategy negative
+- stress evidence is missing or breaches the explicit family-gate safety floor;
+  small stress losses may remain research-acceptable when realistic-cost edge is
+  positive, repeated across home episodes, and stress loss is contained
 - trade count is too low
 - live API keys are needed for research
 - external code has not been isolated
