@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from family_exit_risk_contract import family_exit_contract
+from family_exit_risk_contract import canonical_family_id, family_exit_contract
 
 
 STRATEGY_TAXONOMY: dict[str, dict[str, Any]] = {
@@ -90,7 +90,7 @@ STRATEGY_TAXONOMY: dict[str, dict[str, Any]] = {
         "entry_intent": "Buy confirmed upside break and continuation, not the first wick.",
         "failure_mode": "Chases false breakouts and gets trapped in violent rejection candles.",
     },
-    "volatility_compression_breakout": {
+    "volatility_compression_directional_expansion": {
         "code": "E",
         "name": "Volatility compression then directional expansion",
         "direction": "long_or_short",
@@ -122,7 +122,7 @@ REQUIRED_TAXONOMY_IDS = {
     "uptrend_pullback_long",
     "downside_breakout_continuation_short",
     "upside_breakout_continuation_long",
-    "volatility_compression_breakout",
+    "volatility_compression_directional_expansion",
     "defense_no_trade",
 }
 
@@ -135,9 +135,10 @@ def taxonomy_summary() -> list[dict[str, Any]]:
 
 
 def family_contract(family_id: str) -> dict[str, Any]:
-    family = STRATEGY_TAXONOMY.get(family_id) or STRATEGY_TAXONOMY["defense_no_trade"]
+    canonical = canonical_family_id(family_id)
+    family = STRATEGY_TAXONOMY.get(canonical) or STRATEGY_TAXONOMY["defense_no_trade"]
     return {
-        "strategy_family": family_id,
+        "strategy_family": canonical,
         "family_code": family["code"],
         "family_name": family["name"],
         "direction": family["direction"],
@@ -159,7 +160,7 @@ def classify_strategy_family(*parts: Any) -> str:
     if any(term in normalized for term in ["no trade", "abstention", "defense", "kill switch", "bias check"]):
         return "defense_no_trade"
     if any(term in normalized for term in ["compression", "squeeze", "atr compression", "volatility squeeze"]):
-        return "volatility_compression_breakout"
+        return "volatility_compression_directional_expansion"
 
     is_short = any(term in normalized for term in ["short", "breakdown", "downside", "bear", "sell"])
     is_long = any(term in normalized for term in ["long", "breakout", "upside", "bull", "buy"])
@@ -193,7 +194,7 @@ def classify_strategy_family(*parts: Any) -> str:
 
 def infer_family_from_card(card: dict[str, Any]) -> str:
     translation = card.get("freqtrade_translation") or {}
-    explicit = translation.get("strategy_family")
+    explicit = canonical_family_id(translation.get("strategy_family"))
     if explicit in STRATEGY_TAXONOMY:
         return explicit
     return classify_strategy_family(

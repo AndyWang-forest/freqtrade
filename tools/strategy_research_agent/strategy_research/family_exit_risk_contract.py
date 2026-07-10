@@ -13,7 +13,7 @@ PEAK_EXIT_PRESETS: dict[str, dict[str, float] | None] = {
     "peak60_giveback40": {"activation_profit": 0.60, "giveback": 0.40},
 }
 FAMILY_ALIASES = {
-    "volatility_compression_directional_expansion": "volatility_compression_breakout",
+    "volatility_compression_breakout": "volatility_compression_directional_expansion",
 }
 CANONICAL_FAMILIES = {
     "downtrend_failed_bounce_short",
@@ -24,7 +24,7 @@ CANONICAL_FAMILIES = {
     "uptrend_pullback_long",
     "downside_breakout_continuation_short",
     "upside_breakout_continuation_long",
-    "volatility_compression_breakout",
+    "volatility_compression_directional_expansion",
     "defense_no_trade",
 }
 
@@ -63,7 +63,7 @@ def family_exit_contract(family: str | None) -> dict[str, Any]:
                 "validated_evidence": "A1 unchanged-entry comparison validated peak40 as an optional family exit.",
             }
         )
-    elif canonical == "volatility_compression_breakout":
+    elif canonical == "volatility_compression_directional_expansion":
         contract.update(
             {
                 "research_only_peak_modes": [],
@@ -123,6 +123,6 @@ def validate_contract_table() -> list[str]:
             issues.append(f"{family}: off must remain promotion-allowed")
     if "peak40" not in family_exit_contract("downtrend_failed_bounce_short")["promotion_allowed_peak_modes"]:
         issues.append("A1: validated peak40 mode is missing")
-    if family_exit_contract("volatility_compression_breakout")["promotion_allowed_peak_modes"] != ["off"]:
+    if family_exit_contract("volatility_compression_directional_expansion")["promotion_allowed_peak_modes"] != ["off"]:
         issues.append("E: Peak protection must be blocked for promotion")
     return issues

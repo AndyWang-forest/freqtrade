@@ -34,9 +34,9 @@ def test_a1_peak40_is_promotion_allowed() -> None:
 
 def test_e_peak40_is_blocked_even_through_runtime_alias() -> None:
     verdict = family_exit_risk_contract.validate_promotion_peak_mode(
-        "volatility_compression_directional_expansion", "peak40"
+        "volatility_compression_breakout", "peak40"
     )
-    assert verdict.family == "volatility_compression_breakout"
+    assert verdict.family == "volatility_compression_directional_expansion"
     assert not verdict.allowed
 
 

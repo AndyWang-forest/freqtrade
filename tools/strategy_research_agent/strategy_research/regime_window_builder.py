@@ -56,7 +56,7 @@ FAMILY_HOME_LABELS = {
     "upside_breakout_continuation_long": {"bull", "high_vol"},
     "range_upper_reversion_short": {"range"},
     "range_lower_reversion_long": {"range"},
-    "volatility_compression_breakout": {"range"},
+    "volatility_compression_directional_expansion": {"high_vol"},
 }
 
 

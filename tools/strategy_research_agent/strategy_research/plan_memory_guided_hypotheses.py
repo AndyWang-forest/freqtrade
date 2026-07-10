@@ -220,14 +220,16 @@ def build_hypotheses(memory: dict[str, Any], lineage: dict[str, Any], graph_cont
         parent = nodes.get(strategy, {})
         hypothesis_id = f"mem_{index:02d}_{slug(strategy)}_{slug(blocker)}"
         objective = focus.get("objective") or template["entry_change"]
-        family = classify_strategy_family(
+        explicit_family = parent.get("family")
+        inferred_family = classify_strategy_family(
             strategy,
             blocker,
             objective,
             parent.get("root"),
             parent.get("failure_attribution", {}).get("top_mode"),
         )
-        contract = family_contract(family)
+        contract = family_contract(explicit_family or inferred_family)
+        family = contract["strategy_family"]
         hypotheses.append(
             {
                 "hypothesis_id": hypothesis_id,
