@@ -221,7 +221,10 @@ def active_window_names_except_label(manifest: dict[str, Any], label: str) -> se
 
 
 def family_role_names(manifest: dict[str, Any], family: str, role: str) -> set[str]:
-    if family == "volatility_compression_directional_expansion":
+    if family in {
+        "volatility_compression_directional_expansion",
+        "volatility_compression_breakout",
+    }:
         if role == "home":
             return active_window_names_by_label(manifest, "high_vol")
         if role == "hostile":

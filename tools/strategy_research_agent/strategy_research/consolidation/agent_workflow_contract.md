@@ -97,7 +97,7 @@ settings remain unchanged.
 - Peak protection defaults to `off` for every strategy family.
 - A1 `downtrend_failed_bounce_short` may use the validated `peak40` preset:
   activate at `+0.40` margin return and exit after a `0.40` giveback from peak.
-- E `volatility_compression_breakout` must keep Peak protection off. Its edge
+- E `volatility_compression_directional_expansion` must keep Peak protection off. Its edge
   depends on retaining directional expansion tails, and the unchanged-entry
   Peak40 comparison cut those winners early.
 - Other strategy families may test a small named Peak preset only through an
