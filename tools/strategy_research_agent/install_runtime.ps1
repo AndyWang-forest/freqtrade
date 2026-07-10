@@ -137,6 +137,11 @@ Ensure-Directory -Path $TargetStrategyRoot
 Ensure-Directory -Path $TargetGeneratedStrategies
 
 Copy-AgentTree -Source $SourceStrategyRoot -Destination $TargetStrategyRoot
+$ManagedRuntimeScript = Join-Path $AgentRoot "managed_runtime_files.py"
+$Python = Join-Path $RepoRoot ".venv\Scripts\python.exe"
+if ((Test-Path -LiteralPath $ManagedRuntimeScript) -and (Test-Path -LiteralPath $Python)) {
+    & $Python $ManagedRuntimeScript --source $SourceStrategyRoot --target $TargetStrategyRoot
+}
 Copy-GeneratedStrategies -Source $SourceGeneratedStrategies -Destination $TargetGeneratedStrategies
 Copy-Item -LiteralPath (Join-Path $AgentRoot "download_binance_um_1m.py") -Destination (Join-Path $RepoRoot "user_data\download_binance_um_1m.py") -Force
 if (Test-Path -LiteralPath $SourceOfflineExchange) {

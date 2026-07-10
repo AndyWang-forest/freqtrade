@@ -1,0 +1,156 @@
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+
+import pandas as pd
+import pytest
+
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+AGENT_SOURCE = REPO_ROOT / "tools/strategy_research_agent/strategy_research"
+AGENT_INSTALLER = REPO_ROOT / "tools/strategy_research_agent"
+sys.path.insert(0, str(AGENT_SOURCE))
+sys.path.insert(0, str(AGENT_INSTALLER))
+
+import experiment_provenance  # noqa: E402
+import family_risk_gate  # noqa: E402
+import managed_runtime_files  # noqa: E402
+import regime_window_builder  # noqa: E402
+
+
+def regime_frame(labels: list[str]) -> pd.DataFrame:
+    index = pd.date_range("2025-01-01", periods=len(labels), freq="1D", tz="UTC")
+    size = len(labels)
+    return pd.DataFrame(
+        {
+            "provided_label": labels,
+            "combined_ret_60d": [0.20] * size,
+            "combined_ema_gap": [0.05] * size,
+            "combined_vol_pctile": [0.50] * size,
+            "combined_atr_pctile": [0.50] * size,
+            "combined_bb_width_pctile": [0.50] * size,
+            "combined_trend_efficiency": [0.30] * size,
+            "direction_agreement_60d": [1.0] * size,
+            "btc_close": list(range(100, 100 + size)),
+            "eth_close": list(range(200, 200 + size)),
+            "combined_ret_30d": [0.10] * size,
+        },
+        index=index,
+    )
+
+
+def test_low_confidence_regime_is_not_active(monkeypatch: pytest.MonkeyPatch) -> None:
+    labels = ["bull" if index % 2 == 0 else "mixed" for index in range(180)]
+    monkeypatch.setattr(regime_window_builder, "label_daily", lambda row: row["provided_label"])
+
+    windows = regime_window_builder.select_windows(regime_frame(labels))
+    bull = [item for item in windows if item["label"] == "bull"]
+
+    assert bull
+    assert not any(item["status"] == "active" for item in bull)
+    assert any(item["status"] == "insufficient_confidence" for item in bull)
+
+
+def test_independent_regime_episodes_are_kept(monkeypatch: pytest.MonkeyPatch) -> None:
+    labels = ["bull"] * 75 + ["mixed"] * 55 + ["bull"] * 75 + ["mixed"] * 55
+    monkeypatch.setattr(regime_window_builder, "label_daily", lambda row: row["provided_label"])
+
+    windows = regime_window_builder.select_windows(regime_frame(labels))
+    active = [item for item in windows if item["label"] == "bull" and item["status"] == "active"]
+
+    assert len(active) >= 2
+    assert active[0]["episode_role"] == "primary"
+    assert all(item["episode_role"] in {"primary", "validation_episode"} for item in active)
+
+
+def test_disjoint_regime_windows_have_zero_overlap() -> None:
+    assert regime_window_builder.overlap_share(
+        pd.Timestamp("2025-01-01", tz="UTC"),
+        pd.Timestamp("2025-01-31", tz="UTC"),
+        pd.Timestamp("2025-03-01", tz="UTC"),
+        pd.Timestamp("2025-03-31", tz="UTC"),
+    ) == 0.0
+
+
+def test_registered_experiment_rejects_mutated_csv(tmp_path: Path) -> None:
+    csv_path = tmp_path / "experiment.csv"
+    pointer = tmp_path / "pointer.json"
+    csv_path.write_text("strategy,profit\nA,1\n", encoding="utf-8")
+    experiment_provenance.register_experiment(
+        csv_path,
+        producer="test",
+        pointer_path=pointer,
+    )
+    csv_path.write_text("strategy,profit\nA,2\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="changed after registration"):
+        experiment_provenance.resolve_experiment(pointer_path=pointer)
+
+
+def test_runtime_manifest_only_removes_previously_managed_files(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    target = tmp_path / "target"
+    source.mkdir()
+    target.mkdir()
+    (source / "managed.py").write_text("value = 1\n", encoding="utf-8")
+    managed_runtime_files.sync_manifest(source, target)
+    (target / "managed.py").write_text("value = 1\n", encoding="utf-8")
+    (target / "local_experiment.py").write_text("value = 2\n", encoding="utf-8")
+    (source / "managed.py").unlink()
+
+    payload = managed_runtime_files.sync_manifest(source, target)
+
+    assert payload["removed_files"] == ["managed.py"]
+    assert not (target / "managed.py").exists()
+    assert (target / "local_experiment.py").exists()
+
+
+def test_family_gate_applies_explicit_stress_floor() -> None:
+    family = "downtrend_failed_bounce_short"
+    strategy = "TestStrategy"
+    base = {
+        "strategy": strategy,
+        "strategy_family": family,
+        "slice": "manifest",
+        "window": "manifest_bear_bear_episode",
+        "timerange": "20250101-20250301",
+        "trades": "10",
+        "profit_total_pct": "35",
+        "adjusted_profit_pct": "35",
+        "artifact": "",
+    }
+    rows = [
+        {**base, "scenario": "realistic_fee_5bps"},
+        {**base, "scenario": "stress_fee_20bps", "adjusted_profit_pct": "-20"},
+    ]
+    manifest = {
+        "windows": [
+            {"name": "bear_episode", "label": "bear", "status": "active"},
+            {"name": "bear_validation", "label": "bear", "status": "active"},
+        ],
+        "family_window_roles": {
+            family: {"home": ["bear_episode", "bear_validation"], "hostile": []}
+        },
+    }
+
+    verdict = family_risk_gate.summarize_strategy(strategy, family, rows, 10.0, 3, manifest)
+
+    assert any("stress home total" in blocker for blocker in verdict["blockers"])
+    assert any("stress home worst" in blocker for blocker in verdict["blockers"])
+    assert any("validation episodes missing" in blocker for blocker in verdict["blockers"])
+
+
+def test_experiment_pointer_is_machine_readable(tmp_path: Path) -> None:
+    csv_path = tmp_path / "experiment.csv"
+    pointer = tmp_path / "pointer.json"
+    csv_path.write_text("strategy,profit\nA,1\n", encoding="utf-8")
+
+    payload = experiment_provenance.register_experiment(
+        csv_path,
+        producer="test",
+        pointer_path=pointer,
+    )
+
+    assert json.loads(pointer.read_text(encoding="utf-8"))["csv_sha256"] == payload["csv_sha256"]

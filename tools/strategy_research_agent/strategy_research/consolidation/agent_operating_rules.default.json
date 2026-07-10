@@ -91,6 +91,11 @@
     "active_manifest": "user_data/strategy_research/regime_windows/latest_regime_windows.json",
     "quarantine_manifest": "user_data/strategy_research/regime_windows/regime_inference_quarantine.json",
     "source": "data_derived_btc_eth_futures_ohlcv",
+    "minimum_active_label_share": 0.55,
+    "max_episodes_per_label": 3,
+    "experiment_source_pointer": "user_data/strategy_research/reports/latest_experiment_source.json",
+    "stress_home_total_floor_pct": -10.0,
+    "stress_home_worst_floor_pct": -15.0,
     "labels": [
       "bull",
       "bear",
@@ -104,7 +109,7 @@
       "bear_home",
       "high_vol_hostile"
     ],
-    "rule": "Regime matrix, family-risk gate, promotion gate, event-study context, and strategy-family routing must read the latest data-derived manifest. Legacy hardcoded regime labels are quarantined and may only be cited as raw date-range backtest evidence until relabeled."
+    "rule": "Regime matrix, family-risk gate, promotion gate, event-study context, and strategy-family routing must read the latest data-derived manifest. Only label_share>=0.55 windows are active; gates aggregate primary plus independent validation episodes. Gate CSV input must be explicit or hash-locked by latest_experiment_source.json, never inferred from mtime. Legacy hardcoded regime labels are quarantined and may only be cited as raw date-range backtest evidence until relabeled."
   },
   "futures_runtime_safety_policy": {
     "scope": "all Binance USDT-M futures dry-run and live-review candidates",
@@ -178,6 +183,8 @@
     "No Binance USDT-M futures dry-run or live-review startup may proceed if dry-run strategy risk preflight cannot prove callable hooks, explicit config overrides, and final effective risk settings.",
     "No futures strategy may enter live review with stoploss_on_exchange disabled or without an explicit exchange-side stoploss verification plan.",
     "No regime matrix, family-risk gate, promotion gate, or strategy-generation basis may use legacy hardcoded bull_home/range_home/bear_home/high_vol_hostile windows as active regime truth.",
+    "No family-risk or promotion gate may choose an experiment CSV by modification time; use an explicit path or the SHA-256-locked experiment source pointer.",
+    "No low-confidence regime window with label_share below 0.55 may act as active home/hostile promotion evidence.",
     "No legacy regime-derived lesson may update durable memory, candidate promotion, or next strategy synthesis until it is relabeled against the data-derived regime manifest.",
     "No strategy reaches dry-run review without manual approval after promotion gate.",
     "No Agent-created PR, comment, review, issue, push, release, or status-changing operation may target the official upstream freqtrade/freqtrade repository.",

@@ -23,9 +23,14 @@ import pandas as pd
 
 PAIRS = ["BTC_USDT_USDT", "ETH_USDT_USDT"]
 REGIME_LABELS = ["bull", "bear", "range", "high_vol"]
-MANIFEST_VERSION = 1
+MANIFEST_VERSION = 2
 MIN_WINDOW_DAYS = 45
 WINDOW_LENGTHS = [60, 75, 90]
+MIN_ACTIVE_LABEL_SHARE = 0.55
+MAX_EPISODES_PER_LABEL = 3
+MAX_EPISODE_OVERLAP_SHARE = 0.25
+DATA_FRESHNESS_WARN_HOURS = 24.0
+DATA_FRESHNESS_FAIL_HOURS = 72.0
 LEGACY_REGIME_TOKENS = [
     "bull_home",
     "range_home",
@@ -284,6 +289,19 @@ def summarize_window(label: str, data: pd.DataFrame, start: pd.Timestamp, end: p
     }
 
 
+def overlap_share(
+    left_start: pd.Timestamp,
+    left_end: pd.Timestamp,
+    right_start: pd.Timestamp,
+    right_end: pd.Timestamp,
+) -> float:
+    overlap_delta = min(left_end, right_end) - max(left_start, right_start)
+    overlap = 0 if overlap_delta < pd.Timedelta(0) else overlap_delta.days + 1
+    left_days = (left_end - left_start).days + 1
+    right_days = (right_end - right_start).days + 1
+    return overlap / max(min(left_days, right_days), 1)
+
+
 def select_windows(data: pd.DataFrame) -> list[dict[str, Any]]:
     clean = data.dropna(
         subset=[
@@ -296,9 +314,8 @@ def select_windows(data: pd.DataFrame) -> list[dict[str, Any]]:
     ).copy()
     clean["daily_label"] = clean.apply(label_daily, axis=1)
     windows: list[dict[str, Any]] = []
-    used_ranges: list[tuple[pd.Timestamp, pd.Timestamp]] = []
     for label in REGIME_LABELS:
-        best: tuple[float, pd.Timestamp, pd.Timestamp] | None = None
+        candidates: list[tuple[float, pd.Timestamp, pd.Timestamp]] = []
         for length in WINDOW_LENGTHS:
             if len(clean) < length:
                 continue
@@ -311,14 +328,8 @@ def select_windows(data: pd.DataFrame) -> list[dict[str, Any]]:
                     continue
                 start = window.index[0]
                 end = window.index[-1]
-                score = score_window(label, window)
-                for used_start, used_end in used_ranges:
-                    overlap = max(pd.Timedelta(0), min(end, used_end) - max(start, used_start)).days
-                    if overlap > length * 0.6:
-                        score -= 2.0
-                if best is None or score > best[0]:
-                    best = (score, start, end)
-        if best is None:
+                candidates.append((score_window(label, window), start, end))
+        if not candidates:
             windows.append(
                 {
                     "label": label,
@@ -330,11 +341,35 @@ def select_windows(data: pd.DataFrame) -> list[dict[str, Any]]:
                 }
             )
             continue
-        _, start, end = best
-        row = summarize_window(label, clean, start, end)
-        row["status"] = "active"
-        windows.append(row)
-        used_ranges.append((start, end))
+
+        selected: list[tuple[float, pd.Timestamp, pd.Timestamp]] = []
+        for candidate in sorted(candidates, key=lambda item: item[0], reverse=True):
+            _, start, end = candidate
+            if any(
+                overlap_share(start, end, selected_start, selected_end) > MAX_EPISODE_OVERLAP_SHARE
+                for _, selected_start, selected_end in selected
+            ):
+                continue
+            selected.append(candidate)
+            if len(selected) >= MAX_EPISODES_PER_LABEL:
+                break
+
+        eligible_count = 0
+        for _, start, end in selected:
+            row = summarize_window(label, clean, start, end)
+            label_share = float(row["evidence"]["label_share"])
+            if label_share < MIN_ACTIVE_LABEL_SHARE:
+                row["status"] = "insufficient_confidence"
+                row["episode_role"] = "candidate_only"
+                row["reason"] = (
+                    f"label_share={label_share:.4f} below active threshold "
+                    f"{MIN_ACTIVE_LABEL_SHARE:.2f}"
+                )
+            else:
+                row["status"] = "active"
+                row["episode_role"] = "primary" if eligible_count == 0 else "validation_episode"
+                eligible_count += 1
+            windows.append(row)
     return windows
 
 
@@ -398,6 +433,11 @@ def build_payload() -> dict[str, Any]:
             "start": data.index.min().strftime("%Y-%m-%d"),
             "end": data.index.max().strftime("%Y-%m-%d"),
         },
+        "data_freshness": {
+            "latest_daily_utc": data.index.max().isoformat(),
+            "warn_after_hours": DATA_FRESHNESS_WARN_HOURS,
+            "fail_after_hours": DATA_FRESHNESS_FAIL_HOURS,
+        },
         "label_definitions": {
             "bull": "positive 60d BTC/ETH aligned trend, positive EMA gap, directional efficiency",
             "bear": "negative 60d BTC/ETH aligned trend, negative EMA gap, directional efficiency",
@@ -411,6 +451,8 @@ def build_payload() -> dict[str, Any]:
             "active_label_count": len(active_labels),
             "missing_labels": sorted(set(REGIME_LABELS) - active_labels),
             "legacy_hardcoded_windows_allowed": False,
+            "minimum_active_label_share": MIN_ACTIVE_LABEL_SHARE,
+            "max_episodes_per_label": MAX_EPISODES_PER_LABEL,
         },
     }
     return payload
@@ -432,15 +474,17 @@ def write_manifest_markdown(path: Path, payload: dict[str, Any]) -> None:
         "",
         "## Windows",
         "",
-        "| Label | Name | Timerange | Days | Confidence | BTC Ret % | ETH Ret % | Vol Pctile | Trend Eff | Label Share |",
-        "|---|---|---|---:|---|---:|---:|---:|---:|---:|",
+        "| Label | Name | Status | Episode | Timerange | Days | Confidence | BTC Ret % | ETH Ret % | Vol Pctile | Trend Eff | Label Share |",
+        "|---|---|---|---|---|---:|---|---:|---:|---:|---:|---:|",
     ]
     for item in payload["windows"]:
         ev = item.get("evidence", {})
         lines.append(
-            "| {label} | `{name}` | `{timerange}` | {days} | {confidence} | {btc} | {eth} | {vol} | {trend} | {share} |".format(
+            "| {label} | `{name}` | `{status}` | `{episode}` | `{timerange}` | {days} | {confidence} | {btc} | {eth} | {vol} | {trend} | {share} |".format(
                 label=item.get("label", ""),
                 name=item.get("name", ""),
+                status=item.get("status", ""),
+                episode=item.get("episode_role", ""),
                 timerange=item.get("timerange") or item.get("status", ""),
                 days=item.get("days", 0),
                 confidence=item.get("confidence", ""),
@@ -525,6 +569,21 @@ def validate_manifest(payload: dict[str, Any]) -> list[RegimeCheck]:
         add("method", "fail", str(payload.get("method")))
     else:
         add("method", "ok", payload["method"])
+    freshness = payload.get("data_freshness") or {}
+    latest_daily = freshness.get("latest_daily_utc")
+    if not latest_daily:
+        add("data_freshness", "fail", "missing latest_daily_utc")
+    else:
+        latest_ts = pd.to_datetime(latest_daily, utc=True)
+        age_hours = (pd.Timestamp.now(tz="UTC") - latest_ts).total_seconds() / 3600.0
+        fail_after = float(freshness.get("fail_after_hours", DATA_FRESHNESS_FAIL_HOURS))
+        warn_after = float(freshness.get("warn_after_hours", DATA_FRESHNESS_WARN_HOURS))
+        if age_hours > fail_after:
+            add("data_freshness", "fail", f"latest daily data age {age_hours:.1f}h > {fail_after:.1f}h")
+        elif age_hours > warn_after:
+            add("data_freshness", "warn", f"latest daily data age {age_hours:.1f}h > {warn_after:.1f}h")
+        else:
+            add("data_freshness", "ok", f"latest daily data age {age_hours:.1f}h")
     windows = payload.get("windows")
     if not isinstance(windows, list) or not windows:
         add("windows", "fail", "missing windows")
@@ -547,6 +606,15 @@ def validate_manifest(payload: dict[str, Any]) -> list[RegimeCheck]:
             missing_evidence = [key for key in required if key not in evidence]
             if missing_evidence:
                 add(f"window:{item.get('name')}", "fail", "missing evidence " + ", ".join(missing_evidence))
+            label_share = float(evidence.get("label_share") or 0.0)
+            if label_share < MIN_ACTIVE_LABEL_SHARE:
+                add(
+                    f"window:{item.get('name')}:confidence",
+                    "fail",
+                    f"active label_share {label_share:.4f} < {MIN_ACTIVE_LABEL_SHARE:.2f}",
+                )
+            if item.get("episode_role") not in {"primary", "validation_episode"}:
+                add(f"window:{item.get('name')}:episode_role", "fail", "missing valid episode_role")
     failed = [check for check in checks if check.status == "fail"]
     if failed:
         raise ValueError("; ".join(f"{check.name}: {check.detail}" for check in failed))

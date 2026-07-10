@@ -70,6 +70,12 @@ def is_primary_scenario(name: str | None) -> bool:
     return name == PRIMARY_SCENARIO or name in LEGACY_PRIMARY_SCENARIOS
 
 
+def is_stress_scenario(name: str | None) -> bool:
+    """Return true only for the current stress safety scenario."""
+
+    return name == STRESS_SCENARIO_NAME
+
+
 def scenario_label(name: str | None) -> str:
     if not name:
         return PRIMARY_SCENARIO

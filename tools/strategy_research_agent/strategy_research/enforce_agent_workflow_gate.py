@@ -9,11 +9,10 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-
-from repo_paths import find_repo_root
 from typing import Any
 
 from regime_window_builder import check_manifest_status
+from repo_paths import find_repo_root
 
 
 REPO_ROOT = find_repo_root()
@@ -62,6 +61,21 @@ OFFICIAL_FREQTRADE_REMOTE_TOKENS = (
     "github.com/freqtrade/freqtrade",
     "github.com:freqtrade/freqtrade",
 )
+LEGACY_EXECUTABLE_REGIME_TOKENS = (
+    "bull_20241022_20250120",
+    "range_20240507_20240805",
+    "bear_20251222_20260322",
+    "high_vol_20260118_20260418",
+    "20241022-20250120",
+    "20240507-20240805",
+    "20251222-20260322",
+    "20260118-20260418",
+)
+LEGACY_TOKEN_ALLOWLIST = {
+    "regime_window_builder.py",
+    "build_research_memory.py",
+    "enforce_agent_workflow_gate.py",
+}
 
 
 @dataclass
@@ -160,6 +174,32 @@ def validate_official_upstream_write_guard(checks: list[GateCheck]) -> None:
     )
 
 
+def validate_no_legacy_executable_regime_sources(checks: list[GateCheck]) -> None:
+    source_root = REPO_ROOT / "tools/strategy_research_agent/strategy_research"
+    matches: list[str] = []
+    for path in sorted(source_root.rglob("*")):
+        if path.suffix not in {".py", ".sh"} or path.name in LEGACY_TOKEN_ALLOWLIST:
+            continue
+        text = path.read_text(encoding="utf-8", errors="ignore")
+        tokens = [token for token in LEGACY_EXECUTABLE_REGIME_TOKENS if token in text]
+        if tokens:
+            matches.append(f"{rel(path)}: {', '.join(tokens)}")
+    if matches:
+        add(
+            checks,
+            "regime:no_legacy_executable_sources",
+            "fail",
+            "legacy hardcoded regime windows remain in executable tracked sources: " + "; ".join(matches),
+        )
+    else:
+        add(
+            checks,
+            "regime:no_legacy_executable_sources",
+            "ok",
+            "tracked executable Agent sources contain no active legacy regime dates",
+        )
+
+
 def validate_knowledge_graph_context(checks: list[GateCheck]) -> None:
     if not GRAPH_CONTEXT_JSON.exists():
         add(checks, "knowledge_graph_context:domains", "fail", f"missing {rel(GRAPH_CONTEXT_JSON)}")
@@ -211,7 +251,7 @@ def validate_artifact(path_text: str, checks: list[GateCheck]) -> None:
             add(checks, f"load:{path_text}", "fail", f"invalid JSON: {exc}")
             return
         generated = payload.get("generated_at_utc") or payload.get("generated_at")
-        detail = f"json ok"
+        detail = "json ok"
         if generated:
             detail += f", generated={generated}"
         add(checks, f"load:{path_text}", "ok", detail)
@@ -324,6 +364,23 @@ def validate_rules(path: Path, checks: list[GateCheck]) -> dict[str, Any]:
         add(checks, "timeframe_policy:background_confirmation", "fail", "1h must be background/confirmation only")
     else:
         add(checks, "timeframe_policy:background_confirmation", "ok", "1h allowed only as background confirmation")
+    regime_policy = rules.get("regime_window_policy") or {}
+    expected_regime_policy = {
+        "minimum_active_label_share": 0.55,
+        "max_episodes_per_label": 3,
+        "experiment_source_pointer": "user_data/strategy_research/reports/latest_experiment_source.json",
+        "stress_home_total_floor_pct": -10.0,
+        "stress_home_worst_floor_pct": -15.0,
+    }
+    mismatches = {
+        key: (regime_policy.get(key), expected)
+        for key, expected in expected_regime_policy.items()
+        if regime_policy.get(key) != expected
+    }
+    if mismatches:
+        add(checks, "regime:operating_policy", "fail", json.dumps(mismatches, ensure_ascii=False))
+    else:
+        add(checks, "regime:operating_policy", "ok", "confidence, episode, provenance, and stress floors locked")
     for item in check_manifest_status():
         add(checks, f"regime:{item.name}", item.status, item.detail)
     return rules
@@ -336,6 +393,7 @@ def build_payload() -> dict[str, Any]:
     if rules_path:
         rules = validate_rules(rules_path, checks)
     validate_knowledge_graph_context(checks)
+    validate_no_legacy_executable_regime_sources(checks)
     validate_official_upstream_write_guard(checks)
     failed = [check for check in checks if check.status == "fail"]
     return {

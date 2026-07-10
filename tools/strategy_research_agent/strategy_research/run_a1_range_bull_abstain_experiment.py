@@ -12,11 +12,12 @@ import csv
 import importlib.util
 import json
 import sys
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
 from cost_model import PRIMARY_SCENARIO, STRESS_SCENARIO_NAME
+from experiment_provenance import register_experiment
 
 
 def find_repo_root() -> Path:
@@ -87,31 +88,37 @@ def load_manifest() -> dict[str, Any]:
 
 
 def windows_from_manifest(manifest: dict[str, Any]) -> list[tuple[str, str, str]]:
-    active = {item["label"]: item for item in manifest["windows"] if item.get("status") == "active"}
-    required = ["bull", "bear", "range", "high_vol"]
-    missing = [label for label in required if label not in active]
-    if missing:
-        raise SystemExit(f"Manifest missing active labels: {missing}")
+    active = [item for item in manifest["windows"] if item.get("status") == "active"]
+    bear_windows = [item for item in active if item.get("label") == "bear"]
+    if not bear_windows:
+        raise SystemExit("Manifest has no confidence-qualified active bear window for A1 research.")
 
-    bear = active["bear"]
-    start = bear["start"].replace("-", "")
-    end = bear["end"].replace("-", "")
-    # Three approximately equal walk-forward slices inside the current data-derived bear window.
-    wf = [
-        ("walk_forward", "wf_bear_1", f"{start}-20260523"),
-        ("walk_forward", "wf_bear_2", "20260523-20260612"),
-        ("walk_forward", "wf_bear_3", f"20260612-{end}"),
+    data_end = date.fromisoformat(manifest["date_range"]["end"])
+    recent = [
+        ("main", "65d", f"{(data_end - timedelta(days=65)):%Y%m%d}-{data_end:%Y%m%d}"),
+        ("main", "30d", f"{(data_end - timedelta(days=30)):%Y%m%d}-{data_end:%Y%m%d}"),
+        ("recent", "latest5", f"{(data_end - timedelta(days=5)):%Y%m%d}-{data_end:%Y%m%d}"),
     ]
-    return [
-        ("main", "65d", "20260429-20260703"),
-        ("main", "30d", "20260603-20260703"),
-        ("manifest", f"manifest_bear_{bear['name']}", bear["timerange"]),
-        ("manifest", f"manifest_bull_{active['bull']['name']}", active["bull"]["timerange"]),
-        ("manifest", f"manifest_range_{active['range']['name']}", active["range"]["timerange"]),
-        ("manifest", f"manifest_high_vol_{active['high_vol']['name']}", active["high_vol"]["timerange"]),
-        *wf,
-        ("recent", "latest5", "20260628-20260703"),
+    manifest_windows = [
+        ("manifest", f"manifest_{item['label']}_{item['name']}", item["timerange"])
+        for item in active
     ]
+
+    primary_bear = next(
+        (item for item in bear_windows if item.get("episode_role") == "primary"),
+        bear_windows[0],
+    )
+    bear_start = date.fromisoformat(primary_bear["start"])
+    bear_end = date.fromisoformat(primary_bear["end"])
+    span = max((bear_end - bear_start).days, 3)
+    cut1 = bear_start + timedelta(days=span // 3)
+    cut2 = bear_start + timedelta(days=(span * 2) // 3)
+    walk_forward = [
+        ("walk_forward", "wf_bear_1", f"{bear_start:%Y%m%d}-{cut1:%Y%m%d}"),
+        ("walk_forward", "wf_bear_2", f"{cut1:%Y%m%d}-{cut2:%Y%m%d}"),
+        ("walk_forward", "wf_bear_3", f"{cut2:%Y%m%d}-{bear_end:%Y%m%d}"),
+    ]
+    return [*recent, *manifest_windows, *walk_forward]
 
 
 def configure_base(windows: list[tuple[str, str, str]]) -> None:
@@ -136,6 +143,7 @@ def write_csv(rows: list[Any], ts: str) -> Path:
         writer.writeheader()
         for row in rows:
             writer.writerow(row.__dict__)
+    register_experiment(path, producer="run_a1_range_bull_abstain_experiment")
     return path
 
 

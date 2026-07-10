@@ -11,15 +11,13 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-
-from repo_paths import find_repo_root
 from typing import Any
 
 import pandas as pd
-
-from regime_window_builder import check_manifest_status
-from strategy_taxonomy import REQUIRED_TAXONOMY_IDS, STRATEGY_TAXONOMY
 from pair_universe import CORE_FUTURES_PAIRS, pairs_for_scope, validate_pair_universe
+from regime_window_builder import check_manifest_status
+from repo_paths import find_repo_root
+from strategy_taxonomy import REQUIRED_TAXONOMY_IDS, STRATEGY_TAXONOMY
 
 
 REPO_ROOT = find_repo_root()
@@ -35,6 +33,8 @@ LEVERAGE_METHOD_RE = re.compile(r"def\s+leverage\s*\([^)]*\)\s*->\s*float:\s*(.*
 LEVERAGE_RETURN_RE = re.compile(
     r"return\s+(?:min\(\s*)?([0-9]+(?:\.[0-9]+)?)(?:\s*,\s*max_leverage\s*\))?"
 )
+DATA_FRESHNESS_WARN_HOURS = 24.0
+DATA_FRESHNESS_FAIL_HOURS = 72.0
 
 
 @dataclass
@@ -48,6 +48,11 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--json", action="store_true", help="Write machine-readable preflight output.")
     parser.add_argument("--strict", action="store_true", help="Treat warnings as failures.")
+    parser.add_argument(
+        "--allow-regime-rebuild",
+        action="store_true",
+        help="Downgrade stale/old manifest failures while running the manifest rebuild mode itself.",
+    )
     parser.add_argument(
         "--pair-scope",
         choices=["core", "extension", "research_all"],
@@ -196,7 +201,7 @@ def check_strategy_leverage_overrides(checks: list[Check]) -> None:
         add(checks, "risk_policy:strategy_leverage_overrides", "ok", f"All scanned leverage overrides are 50x ({scanned} files).")
 
 
-def check_workflow_gate(checks: list[Check]) -> None:
+def check_workflow_gate(checks: list[Check], *, allow_regime_rebuild: bool = False) -> None:
     if not WORKFLOW_GATE.exists():
         add(checks, "strategy_agent_gate", "fail", f"Missing {rel(WORKFLOW_GATE)}")
         return
@@ -209,7 +214,7 @@ def check_workflow_gate(checks: list[Check]) -> None:
         check=False,
     )
     if completed.returncode != 0:
-        if "user_data/strategy_research/regime_windows/latest_regime_windows.json" in completed.stdout:
+        if allow_regime_rebuild or "user_data/strategy_research/regime_windows/latest_regime_windows.json" in completed.stdout:
             add(checks, "strategy_agent_gate", "warn", "Regime manifest missing; run --regime-windows before regime matrix, family-risk, promotion, or agent-brain gates.")
             return
         add(checks, "strategy_agent_gate", "fail", completed.stdout[-2000:].strip())
@@ -223,9 +228,13 @@ def check_workflow_gate(checks: list[Check]) -> None:
     add(checks, "strategy_agent_gate", "ok", f"Loaded {len(required)} fixed workflow artifacts.")
 
 
-def check_regime_manifest(checks: list[Check]) -> None:
+def check_regime_manifest(checks: list[Check], *, allow_regime_rebuild: bool = False) -> None:
     for item in check_manifest_status():
-        status = "warn" if item.status == "warn" or item.detail.startswith("Missing ") else item.status
+        status = (
+            "warn"
+            if allow_regime_rebuild or item.status == "warn" or item.detail.startswith("Missing ")
+            else item.status
+        )
         add(checks, f"regime:{item.name}", status, item.detail)
 
 
@@ -310,7 +319,12 @@ def check_registry(checks: list[Check]) -> dict[str, Any] | None:
     strategies = registry.get("strategies", [])
     profile = registry.get("profile", {})
     if strategies:
-        add(checks, "strategy_registry", "ok", f"{len(strategies)} registered research strategies.")
+        states: dict[str, int] = {}
+        for item in strategies:
+            state = str(item.get("state") or item.get("status") or "unknown")
+            states[state] = states.get(state, 0) + 1
+        state_text = ", ".join(f"{key}={value}" for key, value in sorted(states.items()))
+        add(checks, "strategy_registry", "ok", f"{len(strategies)} registered strategies; {state_text}.")
     else:
         add(checks, "strategy_registry", "warn", "No registered research strategies.")
     if profile.get("config") and (REPO_ROOT / profile["config"]).exists():
@@ -336,8 +350,15 @@ def check_data(checks: list[Check], registry: dict[str, Any] | None) -> None:
             dates = pd.to_datetime(frame["date"], utc=True).sort_values()
             first = dates.iloc[0].isoformat() if len(dates) else "empty"
             last = dates.iloc[-1].isoformat() if len(dates) else "empty"
-            status = "ok" if len(dates) >= 10000 else "warn"
-            add(checks, f"data:{pair}:{timeframe}", status, f"{len(dates)} rows, {first} -> {last}")
+            age_hours = (pd.Timestamp.now(tz="UTC") - dates.iloc[-1]).total_seconds() / 3600.0
+            status = (
+                "fail"
+                if age_hours > DATA_FRESHNESS_FAIL_HOURS
+                else "warn"
+                if age_hours > DATA_FRESHNESS_WARN_HOURS or len(dates) < 10000
+                else "ok"
+            )
+            add(checks, f"data:{pair}:{timeframe}", status, f"{len(dates)} rows, {first} -> {last}, age={age_hours:.1f}h")
         except Exception as exc:  # noqa: BLE001 - preflight should surface local data problems.
             add(checks, f"data:{pair}:{timeframe}", "fail", f"{rel(path)}: {exc}")
 
@@ -356,8 +377,20 @@ def check_pair_scope_data(checks: list[Check], pair_scope: str) -> None:
                 dates = pd.to_datetime(frame["date"], utc=True).sort_values()
                 first = dates.iloc[0].isoformat() if len(dates) else "empty"
                 last = dates.iloc[-1].isoformat() if len(dates) else "empty"
-                status = "ok" if len(dates) >= 1000 else "warn"
-                add(checks, f"pair_scope_data:{pair}:{timeframe}", status, f"{len(dates)} rows, {first} -> {last}")
+                age_hours = (pd.Timestamp.now(tz="UTC") - dates.iloc[-1]).total_seconds() / 3600.0
+                status = (
+                    "fail"
+                    if age_hours > DATA_FRESHNESS_FAIL_HOURS
+                    else "warn"
+                    if age_hours > DATA_FRESHNESS_WARN_HOURS or len(dates) < 1000
+                    else "ok"
+                )
+                add(
+                    checks,
+                    f"pair_scope_data:{pair}:{timeframe}",
+                    status,
+                    f"{len(dates)} rows, {first} -> {last}, age={age_hours:.1f}h",
+                )
             except Exception as exc:  # noqa: BLE001 - preflight should surface local data problems.
                 add(checks, f"pair_scope_data:{pair}:{timeframe}", "fail", f"{rel(path)}: {exc}")
 
@@ -416,8 +449,8 @@ def main() -> int:
     config = check_agent_config(checks)
     check_fixed_risk_policy(checks, config)
     check_strategy_leverage_overrides(checks)
-    check_workflow_gate(checks)
-    check_regime_manifest(checks)
+    check_workflow_gate(checks, allow_regime_rebuild=args.allow_regime_rebuild)
+    check_regime_manifest(checks, allow_regime_rebuild=args.allow_regime_rebuild)
     check_strategy_taxonomy(checks)
     check_pair_universe(checks)
     check_offline_exchange_pair_universe(checks)

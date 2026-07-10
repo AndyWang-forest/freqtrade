@@ -12,7 +12,6 @@ from __future__ import annotations
 import argparse
 import csv
 import json
-import math
 import zipfile
 from collections import defaultdict
 from dataclasses import dataclass
@@ -20,7 +19,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from cost_model import PRIMARY_SCENARIO, is_primary_scenario, scenario_label
+from cost_model import PRIMARY_SCENARIO, is_primary_scenario, is_stress_scenario, scenario_label
+from experiment_provenance import register_experiment, resolve_experiment
 
 
 def find_repo_root() -> Path:
@@ -44,6 +44,8 @@ MIN_65D_TRADES = 8
 HOSTILE_GUARDED_WORST_GATE = -15.0
 FAMILY_DRAWDOWN_PAUSE_PCT = 10.0
 CONSECUTIVE_LOSS_PAUSE = 3
+STRESS_HOME_TOTAL_FLOOR_PCT = -10.0
+STRESS_HOME_WORST_FLOOR_PCT = -15.0
 
 FAMILY_INFERENCE = [
     ("SecondLeg", "downtrend_failed_bounce_short"),
@@ -86,7 +88,11 @@ def rel(path: Path) -> str:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--csv", dest="csv_path", help="Experiment CSV to evaluate. Defaults to latest *experiment*.csv.")
+    parser.add_argument(
+        "--csv",
+        dest="csv_path",
+        help="Explicit experiment CSV. Registers a hash-locked source for deterministic reruns.",
+    )
     parser.add_argument("--json", action="store_true", help="Print JSON payload to stdout.")
     parser.add_argument("--drawdown-pause-pct", type=float, default=FAMILY_DRAWDOWN_PAUSE_PCT)
     parser.add_argument(
@@ -96,13 +102,6 @@ def parse_args() -> argparse.Namespace:
         help="Pause after this many consecutive stop_loss exits. Time-stop drifts are not counted as big losses.",
     )
     return parser.parse_args()
-
-
-def latest_experiment_csv() -> Path:
-    candidates = sorted(REPORT_DIR.glob("*experiment*.csv"), key=lambda path: path.stat().st_mtime, reverse=True)
-    if not candidates:
-        raise FileNotFoundError(f"No experiment CSV found under {rel(REPORT_DIR)}")
-    return candidates[0]
 
 
 def read_csv(path: Path) -> list[dict[str, str]]:
@@ -143,6 +142,10 @@ def canonical_family_for_roles(family: str) -> str:
 
 def scenario_is_high_fee(row: dict[str, Any]) -> bool:
     return is_primary_scenario(row.get("scenario"))
+
+
+def scenario_is_stress(row: dict[str, Any]) -> bool:
+    return is_stress_scenario(row.get("scenario"))
 
 
 def row_key(row: dict[str, Any]) -> tuple[str, str, str, str]:
@@ -234,10 +237,24 @@ def current_rows_are_abstention(rows: list[dict[str, Any]], sims: dict[tuple[str
     return all(sims[row_key(row)].trades_taken == 0 and sims[row_key(row)].guarded_profit_pct == 0.0 for row in current_rows)
 
 
-def best_sim(rows: list[tuple[dict[str, Any], SimResult]]) -> tuple[dict[str, Any], SimResult] | tuple[dict[str, Any], None]:
+def combine_episode_sims(rows: list[tuple[dict[str, Any], SimResult]]) -> tuple[dict[str, Any], SimResult] | tuple[dict[str, Any], None]:
     if not rows:
         return {}, None
-    return max(rows, key=lambda item: (item[1].guarded_profit_pct, item[1].trades_taken))
+    names = [row.get("window", "") for row, _ in rows]
+    modes = sorted({sim.evidence_mode for _, sim in rows})
+    return (
+        {"window": ";".join(names), "episode_windows": names},
+        SimResult(
+            raw_profit_pct=round(sum(sim.raw_profit_pct for _, sim in rows), 4),
+            guarded_profit_pct=round(sum(sim.guarded_profit_pct for _, sim in rows), 4),
+            trades_seen=sum(sim.trades_seen for _, sim in rows),
+            trades_taken=sum(sim.trades_taken for _, sim in rows),
+            trades_blocked=sum(sim.trades_blocked for _, sim in rows),
+            max_drawdown_pct=round(max((sim.max_drawdown_pct for _, sim in rows), default=0.0), 4),
+            pause_reason=";".join(sorted({sim.pause_reason for _, sim in rows})),
+            evidence_mode="multi_episode[" + ",".join(modes) + "]",
+        ),
+    )
 
 
 def load_payload(artifact: Path) -> dict[str, Any] | None:
@@ -359,6 +376,7 @@ def summarize_strategy(
     regime_manifest: dict[str, Any],
 ) -> dict[str, Any]:
     high_rows = [row for row in rows if scenario_is_high_fee(row)]
+    stress_rows = [row for row in rows if scenario_is_stress(row)]
     sims = {
         row_key(row): simulate_row(row, drawdown_pause_pct, consecutive_loss_pause)
         for row in high_rows
@@ -375,11 +393,12 @@ def summarize_strategy(
         for row in high_rows
         if manifest_row_matches(row, home_names)
     ]
-    manifest_target = [
-        (row, sims[row_key(row)])
-        for row in high_rows
-        if row.get("slice") == "manifest" and "manifest_bear" in row.get("window", "")
-    ]
+    observed_home_names = {
+        name
+        for name in home_names
+        if any(manifest_row_matches(row, {name}) for row, _ in home_rows)
+    }
+    missing_home_names = sorted(home_names - observed_home_names)
     recent = {
         canonical_gate_window(row.get("window", "")): (row, sims[row_key(row)])
         for row in high_rows
@@ -405,14 +424,12 @@ def summarize_strategy(
     row_5, sim_5 = main.get("latest5", ({}, None))
     evaluation_mode = "recent_main"
     current_window_role = "target"
-    home_row, home_sim = best_sim(home_rows)
+    home_row, home_sim = combine_episode_sims(home_rows)
     if home_sim is not None:
         evaluation_mode = "manifest_home"
         current_window_role = "abstain" if current_rows_are_abstention(high_rows, sims) else "non_home_observation"
         row_65, sim_65 = home_row, home_sim
-        row_30, sim_30 = {}, None
-    elif sim_65 is None and manifest_target:
-        row_65, sim_65 = manifest_target[0]
+        sim_30 = None
     if sim_5 is None:
         row_5, sim_5 = recent.get("latest5", ({}, None))
     target_65 = sim_65.guarded_profit_pct if sim_65 else 0.0
@@ -426,6 +443,20 @@ def summarize_strategy(
     hostile_guarded_worst = min((sim.guarded_profit_pct for _, sim in hostile), default=0.0)
     hostile_guarded_total = sum(sim.guarded_profit_pct for _, sim in hostile)
     evidence_modes = sorted({sim.evidence_mode for sim in sims.values()})
+    stress_sims = {
+        row_key(row): simulate_row(row, drawdown_pause_pct, consecutive_loss_pause)
+        for row in stress_rows
+    }
+    stress_home_rows = [
+        (row, stress_sims[row_key(row)])
+        for row in stress_rows
+        if manifest_row_matches(row, home_names)
+    ]
+    stress_home_total = sum(sim.guarded_profit_pct for _, sim in stress_home_rows)
+    stress_home_worst = min((sim.guarded_profit_pct for _, sim in stress_home_rows), default=0.0)
+    home_episode_positive = sum(1 for _, sim in home_rows if sim.guarded_profit_pct > 0)
+    home_episode_total = len(home_rows)
+    home_episode_worst = min((sim.guarded_profit_pct for _, sim in home_rows), default=0.0)
     aggregate_rows_with_trades = [
         row.get("window", "")
         for row in high_rows
@@ -457,6 +488,23 @@ def summarize_strategy(
             supports.append(f"latest5 remains positive at {latest5:.4f}%")
     if trades_65 < MIN_65D_TRADES:
         blockers.append(f"65d trades taken {trades_65} < {MIN_65D_TRADES}")
+    if home_rows and missing_home_names:
+        blockers.append("active home validation episodes missing from gate input: " + ", ".join(missing_home_names))
+    if home_episode_total > 1 and home_episode_positive * 2 < home_episode_total:
+        blockers.append(
+            f"home episodes positive {home_episode_positive}/{home_episode_total}; edge is not independently repeated"
+        )
+    if home_rows and not stress_home_rows:
+        blockers.append("stress-cost home-regime evidence is missing")
+    elif stress_home_rows:
+        if stress_home_total < STRESS_HOME_TOTAL_FLOOR_PCT:
+            blockers.append(
+                f"stress home total {stress_home_total:.4f}% < {STRESS_HOME_TOTAL_FLOOR_PCT:.1f}% safety floor"
+            )
+        if stress_home_worst < STRESS_HOME_WORST_FLOOR_PCT:
+            blockers.append(
+                f"stress home worst {stress_home_worst:.4f}% < {STRESS_HOME_WORST_FLOOR_PCT:.1f}% safety floor"
+            )
     if hostile_guarded_worst < HOSTILE_GUARDED_WORST_GATE:
         blockers.append(
             f"hostile-regime guarded worst {hostile_guarded_worst:.4f}% < {HOSTILE_GUARDED_WORST_GATE:.1f}%"
@@ -496,6 +544,13 @@ def summarize_strategy(
         "home_windows": sorted(home_names),
         "hostile_windows": sorted(hostile_names),
         "selected_home_window": row_65.get("window", ""),
+        "selected_home_windows": row_65.get("episode_windows", [row_65.get("window", "")]),
+        "missing_home_windows": missing_home_names,
+        "home_episode_positive": home_episode_positive,
+        "home_episode_total": home_episode_total,
+        "home_episode_worst_guarded_pct": round(home_episode_worst, 4),
+        "stress_home_total_guarded_pct": round(stress_home_total, 4),
+        "stress_home_worst_guarded_pct": round(stress_home_worst, 4),
         "walk_forward_positive": wf_positive,
         "walk_forward_total": wf_total,
         "walk_forward_worst_guarded_pct": round(wf_worst, 4),
@@ -510,7 +565,7 @@ def summarize_strategy(
     }
 
 
-def build_payload(csv_path: Path, args: argparse.Namespace) -> dict[str, Any]:
+def build_payload(csv_path: Path, args: argparse.Namespace, provenance: dict[str, Any] | None = None) -> dict[str, Any]:
     rows = read_csv(csv_path)
     regime_manifest = load_regime_manifest()
     grouped: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
@@ -549,6 +604,11 @@ def build_payload(csv_path: Path, args: argparse.Namespace) -> dict[str, Any]:
             "evaluation_mode": best["evaluation_mode"],
             "current_window_role": best["current_window_role"],
             "selected_home_window": best["selected_home_window"],
+            "selected_home_windows": best["selected_home_windows"],
+            "home_episode_positive": best["home_episode_positive"],
+            "home_episode_total": best["home_episode_total"],
+            "stress_home_total_guarded_pct": best["stress_home_total_guarded_pct"],
+            "stress_home_worst_guarded_pct": best["stress_home_worst_guarded_pct"],
             "blockers": best["blockers"],
             "blocks": best["blocks"],
             "supports": best["supports"],
@@ -557,6 +617,7 @@ def build_payload(csv_path: Path, args: argparse.Namespace) -> dict[str, Any]:
     return {
         "generated_at_utc": now_utc(),
         "source_csv": rel(csv_path),
+        "source_provenance": provenance or {},
         "gate_version": 2,
         "scope": "all_strategy_families",
         "promotion_principle": (
@@ -577,6 +638,8 @@ def build_payload(csv_path: Path, args: argparse.Namespace) -> dict[str, Any]:
             "family_drawdown_pause_pct": args.drawdown_pause_pct,
             "consecutive_stop_loss_pause": args.consecutive_loss_pause,
             "hostile_guarded_worst_gate_pct": HOSTILE_GUARDED_WORST_GATE,
+            "stress_home_total_floor_pct": STRESS_HOME_TOTAL_FLOOR_PCT,
+            "stress_home_worst_floor_pct": STRESS_HOME_WORST_FLOOR_PCT,
         },
         "family_verdicts": list(family_verdicts.values()),
         "verdicts": verdicts,
@@ -654,8 +717,8 @@ def write_markdown(payload: dict[str, Any]) -> Path:
             "",
             "## Strategy Verdicts",
             "",
-            "| Strategy | Family | Eval Mode | Current Role | Selected Home | State | Home/65d guarded | 30d guarded | latest5 | WF | Hostile raw worst | Hostile guarded worst | Evidence |",
-            "|---|---|---|---|---|---|---:|---:|---:|---|---:|---:|---|",
+            "| Strategy | Family | Eval Mode | Current Role | Home Episodes | State | Home/65d guarded | Stress Total | Stress Worst | 30d guarded | latest5 | WF | Hostile raw worst | Hostile guarded worst | Evidence |",
+            "|---|---|---|---|---|---|---:|---:|---:|---:|---:|---|---:|---:|---|",
         ]
     )
     for item in payload["verdicts"]:
@@ -663,8 +726,9 @@ def write_markdown(payload: dict[str, Any]) -> Path:
         wf = f"{item['walk_forward_positive']}/{item['walk_forward_total']} worst {item['walk_forward_worst_guarded_pct']:.4f}%"
         lines.append(
             f"| `{item['strategy']}` | `{item['strategy_family']}` | `{item.get('evaluation_mode', '')}` | "
-            f"`{item.get('current_window_role', '')}` | `{item.get('selected_home_window', '')}` | `{item['state']}` | "
-            f"{item['target_65d_guarded_pct']:.4f} | {item['target_30d_guarded_pct']:.4f} | "
+            f"`{item.get('current_window_role', '')}` | {item['home_episode_positive']}/{item['home_episode_total']} | `{item['state']}` | "
+            f"{item['target_65d_guarded_pct']:.4f} | {item['stress_home_total_guarded_pct']:.4f} | "
+            f"{item['stress_home_worst_guarded_pct']:.4f} | {item['target_30d_guarded_pct']:.4f} | "
             f"{item['latest5_guarded_pct']:.4f} | {wf} | {item['hostile_raw_worst_pct']:.4f} | "
             f"{item['hostile_guarded_worst_pct']:.4f} | {evidence} |"
         )
@@ -688,10 +752,15 @@ def write_markdown(payload: dict[str, Any]) -> Path:
 
 def main() -> int:
     args = parse_args()
-    csv_path = Path(args.csv_path) if args.csv_path else latest_experiment_csv()
-    if not csv_path.is_absolute():
-        csv_path = REPO_ROOT / csv_path
-    payload = build_payload(csv_path, args)
+    csv_path, provenance = resolve_experiment(
+        args.csv_path,
+        register_explicit=False,
+        producer="family_risk_gate_explicit_input" if args.csv_path else "family_risk_gate_registered_input",
+    )
+    payload = build_payload(csv_path, args, provenance)
+    if args.csv_path:
+        provenance = register_experiment(csv_path, producer="family_risk_gate_explicit_input")
+        payload["source_provenance"] = provenance
     json_path = write_json(payload)
     md_path = write_markdown(payload)
     if args.json:

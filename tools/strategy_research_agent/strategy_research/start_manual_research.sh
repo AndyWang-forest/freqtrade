@@ -236,7 +236,11 @@ pair_scope_for_preflight="$agent_pair_scope"
 pair_scope_args=(--pair-scope "$agent_pair_scope")
 
 echo "== Strategy Research Agent: preflight =="
-"$PYTHON" user_data/strategy_research/preflight_research_agent.py --pair-scope "$pair_scope_for_preflight"
+preflight_args=(--pair-scope "$pair_scope_for_preflight")
+if [[ "$mode" == "regime_windows" ]]; then
+  preflight_args+=(--allow-regime-rebuild)
+fi
+"$PYTHON" user_data/strategy_research/preflight_research_agent.py "${preflight_args[@]}"
 
 if [[ "$mode" == "agent_brain" ]]; then
   echo "== Strategy Research Agent: bootstrap external brain graph =="
@@ -467,7 +471,7 @@ PY
     ;;
   dryrun_risk_preflight)
     echo "== Strategy Research Agent: dry-run strategy risk preflight =="
-    "$PYTHON" user_data/strategy_research/dryrun_strategy_risk_preflight.py --all-registry ${extra_args[@]+"${extra_args[@]}"}
+    "$PYTHON" user_data/strategy_research/dryrun_strategy_risk_preflight.py --eligible-registry ${extra_args[@]+"${extra_args[@]}"}
     ;;
   trade_behavior)
     echo "== Strategy Research Agent: trade behavior analysis =="
