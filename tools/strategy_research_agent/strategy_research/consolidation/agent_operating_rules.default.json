@@ -111,6 +111,18 @@
     ],
     "rule": "Regime matrix, family-risk gate, promotion gate, event-study context, and strategy-family routing must read the latest data-derived manifest. Only label_share>=0.55 windows are active; gates aggregate primary plus independent validation episodes. Gate CSV input must be explicit or hash-locked by latest_experiment_source.json, never inferred from mtime. Legacy hardcoded regime labels are quarantined and may only be cited as raw date-range backtest evidence until relabeled."
   },
+  "family_exit_risk_policy": {
+    "default_peak_mode": "off",
+    "a1_promotion_allowed_peak_modes": [
+      "off",
+      "peak40"
+    ],
+    "e_promotion_allowed_peak_modes": [
+      "off"
+    ],
+    "other_family_rule": "Peak presets require unchanged-entry A/B evidence and an explicit tracked family contract update before promotion or dry-run review.",
+    "rule": "Peak drawdown exits are family-specific, never global. A1 may use validated peak40; E directional expansion must keep Peak off."
+  },
   "futures_runtime_safety_policy": {
     "scope": "all Binance USDT-M futures dry-run and live-review candidates",
     "required_network_controls": [
@@ -190,6 +202,7 @@
     "No Agent-created PR, comment, review, issue, push, release, or status-changing operation may target the official upstream freqtrade/freqtrade repository.",
     "BTC/ETH are the default core futures research pair universe; SOL/BNB/XRP require explicit pair-scope research_all or extension and never modify dry-run/live config by implication.",
     "High-liquidity futures expansion must exclude meme coins, low-liquidity altcoins, new listings, synthetic stock/commodity contracts, and unstable non-crypto derivatives.",
+    "Peak drawdown exits are off by default and family-specific: A1 may use validated peak40, E directional expansion must keep Peak off, and other families require unchanged-entry A/B evidence plus an explicit contract update.",
     "No dry-run runtime state, private token, local trade database, or unsanitized full dashboard/report may be committed as live-review evidence.",
     "A dry-run that passes review may only enter the repository as a secret-free live-review candidate package: strategy source, candidate registry status, promotion/family-risk evidence summary, config template, checklist, and rollback/emergency-stop runbook.",
     "Live trading is outside this agent flow.",
@@ -223,6 +236,7 @@
     "Treat legacy hardcoded regime windows as quarantined raw date-range evidence, not as active bull/range/bear/high-vol labels.",
     "Use the versioned pair universe: core BTC/ETH by default, SOL/BNB/XRP only when explicitly requested as extension or research_all scope.",
     "Do not treat high liquidity as sufficient for trading safety; excluded high-manipulation or unstable contract classes remain outside the research universe.",
+    "Do not apply one Peak giveback threshold globally; read the family exit-risk contract before strategy synthesis, comparison, promotion, or dry-run risk preflight.",
     "Run factor research as the same Agent's front-door evidence layer before event-study planning or strategy synthesis.",
     "Convert only factor rows with sufficient sample, after-fee expectancy, win rate, and MFE/MAE evidence into factor-to-strategy event hypotheses.",
     "Before generating a concrete strategy class, define a measurable event and run or read event-study evidence for samples, forward returns, win rate, and MFE/MAE.",

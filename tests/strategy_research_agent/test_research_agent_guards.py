@@ -15,9 +15,45 @@ sys.path.insert(0, str(AGENT_SOURCE))
 sys.path.insert(0, str(AGENT_INSTALLER))
 
 import experiment_provenance  # noqa: E402
+import family_exit_risk_contract  # noqa: E402
 import family_risk_gate  # noqa: E402
 import managed_runtime_files  # noqa: E402
 import regime_window_builder  # noqa: E402
+
+
+def test_family_peak_contract_defaults_off() -> None:
+    assert family_exit_risk_contract.validate_contract_table() == []
+    for family in family_exit_risk_contract.CANONICAL_FAMILIES:
+        assert family_exit_risk_contract.family_exit_contract(family)["default_peak_mode"] == "off"
+
+
+def test_a1_peak40_is_promotion_allowed() -> None:
+    verdict = family_exit_risk_contract.validate_promotion_peak_mode("downtrend_failed_bounce_short", "peak40")
+    assert verdict.allowed
+
+
+def test_e_peak40_is_blocked_even_through_runtime_alias() -> None:
+    verdict = family_exit_risk_contract.validate_promotion_peak_mode(
+        "volatility_compression_directional_expansion", "peak40"
+    )
+    assert verdict.family == "volatility_compression_breakout"
+    assert not verdict.allowed
+
+
+def test_other_family_peak_requires_future_contract_update() -> None:
+    verdict = family_exit_risk_contract.validate_promotion_peak_mode("uptrend_pullback_long", "peak40")
+    assert not verdict.allowed
+
+
+def test_unknown_family_cannot_bypass_contract_with_peak_off() -> None:
+    verdict = family_exit_risk_contract.validate_promotion_peak_mode("unregistered_family", "off")
+    assert not verdict.allowed
+
+
+def test_peak_mode_recognizes_named_presets_only() -> None:
+    assert family_exit_risk_contract.peak_mode_from_values(None, None) == "off"
+    assert family_exit_risk_contract.peak_mode_from_values(0.40, 0.40) == "peak40"
+    assert family_exit_risk_contract.peak_mode_from_values(0.55, 0.40) == "custom_or_invalid"
 
 
 def regime_frame(labels: list[str]) -> pd.DataFrame:

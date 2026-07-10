@@ -6,6 +6,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from family_exit_risk_contract import family_exit_contract
+
 
 STRATEGY_TAXONOMY: dict[str, dict[str, Any]] = {
     "downtrend_failed_bounce_short": {
@@ -143,6 +145,7 @@ def family_contract(family_id: str) -> dict[str, Any]:
         "disabled_regimes": list(family["disabled_regimes"]),
         "entry_intent": family["entry_intent"],
         "failure_mode": family["failure_mode"],
+        "exit_risk_contract": family_exit_contract(family_id),
         "contract_required_for_generation": True,
         "contract_required_for_attribution": True,
         "contract_required_for_promotion": True,

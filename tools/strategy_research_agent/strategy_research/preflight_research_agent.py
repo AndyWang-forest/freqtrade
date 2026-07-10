@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
+from family_exit_risk_contract import validate_contract_table
 from pair_universe import CORE_FUTURES_PAIRS, pairs_for_scope, validate_pair_universe
 from regime_window_builder import check_manifest_status
 from repo_paths import find_repo_root
@@ -257,6 +258,14 @@ def check_strategy_taxonomy(checks: list[Check]) -> None:
     )
 
 
+def check_family_exit_risk_contract(checks: list[Check]) -> None:
+    issues = validate_contract_table()
+    if issues:
+        add(checks, "family_exit_risk_contract", "fail", "; ".join(issues))
+        return
+    add(checks, "family_exit_risk_contract", "ok", "Peak off by default; A1 permits peak40; E permits off only.")
+
+
 def check_pair_universe(checks: list[Check]) -> None:
     issues = validate_pair_universe()
     if issues:
@@ -452,6 +461,7 @@ def main() -> int:
     check_workflow_gate(checks, allow_regime_rebuild=args.allow_regime_rebuild)
     check_regime_manifest(checks, allow_regime_rebuild=args.allow_regime_rebuild)
     check_strategy_taxonomy(checks)
+    check_family_exit_risk_contract(checks)
     check_pair_universe(checks)
     check_offline_exchange_pair_universe(checks)
     registry = check_registry(checks)

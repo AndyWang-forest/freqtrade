@@ -88,6 +88,27 @@ keep meme coins, low-liquidity altcoins, new listings, synthetic stock or
 commodity contracts, and unstable/non-crypto derivative contracts outside the
 fixed research universe unless a new PR changes this policy explicitly.
 
+## Family Exit-Risk Contract
+
+Peak-profit drawdown exits are strategy-family controls, not a global futures
+risk parameter. The fixed ROI, stoploss, leverage, and other global risk
+settings remain unchanged.
+
+- Peak protection defaults to `off` for every strategy family.
+- A1 `downtrend_failed_bounce_short` may use the validated `peak40` preset:
+  activate at `+0.40` margin return and exit after a `0.40` giveback from peak.
+- E `volatility_compression_breakout` must keep Peak protection off. Its edge
+  depends on retaining directional expansion tails, and the unchanged-entry
+  Peak40 comparison cut those winners early.
+- Other strategy families may test a small named Peak preset only through an
+  unchanged-entry A/B comparison. Research evidence alone does not authorize
+  dry-run: the tracked family contract must be updated before promotion.
+- Custom or unnamed Peak thresholds cannot pass dry-run risk preflight.
+
+The Agent must compare entry-identical original and Peak variants across home
+episodes, realistic/stress costs, trade-level exit reasons, and tail capture.
+It must not run a dense Peak threshold grid.
+
 ## Post-Run Attribution Gate
 
 Every strategy research round that runs backtests must end with post-run attribution before it updates research memory, mature researcher queues, or the next experiment plan.

@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from repo_paths import find_repo_root
+from family_exit_risk_contract import CANONICAL_FAMILIES, family_exit_contract
 
 
 REPO_ROOT = find_repo_root()
@@ -101,6 +102,15 @@ REGIME_WINDOW_POLICY = {
         "Only confidence-qualified primary and independent validation episodes may drive family gates. "
         "Experiment input must be explicit or SHA-256 locked; realistic cost is the edge screen and "
         "stress cost must remain inside the explicit safety floors."
+    ),
+}
+FAMILY_EXIT_RISK_POLICY = {
+    "default_peak_mode": "off",
+    "contracts": {family: family_exit_contract(family) for family in sorted(CANONICAL_FAMILIES)},
+    "rule": (
+        "Peak drawdown exits are family-specific, never global. A1 may use validated peak40; "
+        "E directional expansion must keep Peak off; every other family requires unchanged-entry "
+        "A/B evidence plus an explicit contract update before promotion or dry-run review."
     ),
 }
 
@@ -322,6 +332,7 @@ def build_payload() -> dict[str, Any]:
             "BTC/ETH are the default core futures research pair universe; SOL/BNB/XRP require explicit pair-scope research_all or extension and never modify dry-run/live config by implication.",
             "High-liquidity futures expansion must exclude meme coins, low-liquidity altcoins, new listings, synthetic stock/commodity contracts, and unstable non-crypto derivatives.",
             "Promotion gate is family-level: evaluate target-regime edge plus hostile-regime loss containment under router, cooldown, drawdown, and consecutive stop-loss circuit breakers, not naked all-regime performance alone.",
+            "Peak drawdown exits are family-specific and off by default. A1 may use validated peak40; E directional expansion must keep Peak off; other families require unchanged-entry A/B evidence and an explicit contract update before promotion.",
             "Live trading is outside this agent flow.",
             "Dry-run/live config files must not be modified by this consolidation layer.",
         ],
@@ -348,6 +359,7 @@ def build_payload() -> dict[str, Any]:
             "After every backtest or strategy research round, run post-run attribution before updating research memory, mature researcher queues, or next experiments.",
             "Post-run attribution must separate signal edge, entry timing, exit quality, cost/funding drag, fixed 50x risk amplification, regime dependency, and sample validity.",
             "For promotion, evaluate every strategy family under regime-router and family/portfolio circuit breakers; do not require high-leverage crypto strategies to be all-regime holy grails.",
+            "Do not apply one Peak giveback threshold globally. Read the family exit-risk contract before strategy synthesis, comparison, promotion, or dry-run risk preflight.",
             "A family may be a dry-run review candidate only when its target-regime edge survives and hostile-regime losses are contained by family-level drawdown, cooldown, and consecutive stop-loss guards.",
             "Treat official upstream freqtrade/freqtrade as read-only reference material only; never open PRs, comments, reviews, issues, pushes, releases, or status-changing operations there.",
             "For fixed 50x futures strategy generation, primary entry timeframe must be one of 3m, 5m, or 15m; 1h is background confirmation only.",
@@ -404,6 +416,7 @@ def build_operating_rules(payload: dict[str, Any]) -> dict[str, Any]:
         "external_brain_policy": EXTERNAL_BRAIN_POLICY,
         "factor_research_policy": FACTOR_RESEARCH_POLICY,
         "regime_window_policy": REGIME_WINDOW_POLICY,
+        "family_exit_risk_policy": FAMILY_EXIT_RISK_POLICY,
         "hard_boundaries": payload["promotion_boundaries"],
         "required_gates": payload["required_gates"],
         "blocked_patterns": payload["blocked_patterns"],
