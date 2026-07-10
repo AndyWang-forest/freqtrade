@@ -51,6 +51,14 @@ Excluded classes stay out of the fixed research universe unless a later PR
 changes the policy: meme coins, low-liquidity altcoins, new listings, synthetic
 stock/commodity contracts, and unstable/non-crypto derivatives.
 
+## Family Exit-Risk Policy
+
+Peak-profit drawdown exits are governed per strategy family, not globally.
+They default to off; A1 may use validated Peak40, E directional expansion must
+keep Peak off, and other families need unchanged-entry A/B evidence plus a
+tracked contract update before promotion or dry-run review. Fixed ROI,
+stoploss, isolated 50x leverage, and global runtime protections are unchanged.
+
 ## Install Strategy Research Skills
 
 macOS/Linux:

@@ -22,6 +22,8 @@ from typing import Any
 from freqtrade.resolvers import StrategyResolver
 from freqtrade.strategy.interface import IStrategy
 
+from family_exit_risk_contract import strategy_peak_mode, validate_promotion_peak_mode
+
 
 def find_repo_root() -> Path:
     current = Path(__file__).resolve()
@@ -382,6 +384,16 @@ def check_protections(audit: StrategyAudit, strategy: IStrategy) -> None:
         audit.add("protections:StoplossGuard", "ok", json.dumps(guard, ensure_ascii=False, sort_keys=True))
 
 
+def check_family_exit_risk_contract(audit: StrategyAudit, strategy: IStrategy) -> None:
+    verdict = validate_promotion_peak_mode(
+        getattr(strategy, "strategy_family", None),
+        strategy_peak_mode(strategy),
+    )
+    audit.add("family_exit_risk:family", "ok" if verdict.family else "fail", verdict.family or "missing")
+    audit.add("family_exit_risk:peak_mode", "ok", verdict.mode)
+    audit.add("family_exit_risk:promotion_contract", "ok" if verdict.allowed else "fail", verdict.detail)
+
+
 def audit_strategy(strategy_name: str, config_path: Path) -> StrategyAudit:
     audit = StrategyAudit(strategy=strategy_name)
     final_config = build_config(config_path, strategy_name)
@@ -409,6 +421,7 @@ def audit_strategy(strategy_name: str, config_path: Path) -> StrategyAudit:
     check_overrides(audit, source_strategy, final_strategy, final_strategy.config)
     check_strategy_contract(audit, final_strategy)
     check_callbacks(audit, final_strategy)
+    check_family_exit_risk_contract(audit, final_strategy)
     check_protections(audit, final_strategy)
     return audit
 
