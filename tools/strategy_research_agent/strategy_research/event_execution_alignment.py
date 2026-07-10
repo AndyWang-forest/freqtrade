@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import inspect
 import importlib.util
 import json
 import sys
@@ -131,7 +132,14 @@ def build_frame(module: Any, pair_key: str, timeframe: str) -> pd.DataFrame:
         for tf in timeframes:
             if pair == pair_key or tf == timeframe or hasattr(module, "add_cross_pair_context"):
                 try:
-                    frames[(pair, tf)] = module.load_pair(pair, tf)
+                    params = inspect.signature(module.load_pair).parameters
+                    if len(params) >= 2:
+                        frame = module.load_pair(pair, tf)
+                    else:
+                        frame = module.load_pair(pair)
+                    if hasattr(module, "add_indicators"):
+                        frame = module.add_indicators(frame)
+                    frames[(pair, tf)] = frame
                 except Exception:
                     continue
     if hasattr(module, "add_cross_pair_context"):
@@ -170,7 +178,15 @@ def build_events(target: dict[str, Any]) -> tuple[pd.DataFrame, pd.Series, pd.Se
     df["date"] = pd.to_datetime(df["date"], utc=True)
     start, end = parse_timerange(target["timerange"])
     df = df[(df["date"] >= start) & (df["date"] < end)].copy()
-    event_tuple = module.event_masks(df, timeframe)[event]
+    if hasattr(module, "event_masks"):
+        params = inspect.signature(module.event_masks).parameters
+        masks = module.event_masks(df, timeframe) if len(params) >= 2 else module.event_masks(df)
+    elif hasattr(module, "signals"):
+        masks = module.signals(df)
+    else:
+        raise RuntimeError(f"Event module has no event_masks() or signals(): {target['event_module']}")
+    event_value = masks[event]
+    event_tuple = event_value if isinstance(event_value, tuple) else (target.get("family", "event_signal"), "", event_value)
     family = event_tuple[0]
     tuple_side = event_tuple[1] if len(event_tuple) > 1 else ""
     side = side_override or (tuple_side if tuple_side in {"long", "short"} else "short")
@@ -225,7 +241,7 @@ def classify_target(target: dict[str, Any]) -> tuple[dict[str, Any], list[Alignm
             status = "blocked_by_startup"
         else:
             for open_time, _close_time, trade in trade_rows:
-                if open_time >= event_time and abs(open_time - expected_entry) <= tolerance:
+                if open_time >= expected_entry and open_time - expected_entry <= tolerance:
                     matched = (open_time, trade)
                     status = "executed"
                     break
