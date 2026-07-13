@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
+from cost_model import REALISTIC_SCENARIO
 from pair_universe import pairs_for_scope
 from regime_window_builder import REGIME_LABELS, active_windows_for_label, regime_entry_mask
 from repo_paths import find_repo_root
@@ -28,7 +29,9 @@ OUTPUT_DIR = AGENT_ROOT / "factors"
 LATEST_JSON = OUTPUT_DIR / "latest_factor_research.json"
 LATEST_MD = OUTPUT_DIR / "latest_factor_research.md"
 TIMEFRAMES = ["3m", "5m", "15m"]
-FEE_ROUND_TRIP = 0.001
+REALISTIC_ROUND_TRIP_FRICTION = (
+    2 * REALISTIC_SCENARIO.fee + REALISTIC_SCENARIO.slippage_bps / 10000.0
+)
 MIN_SAMPLE = 80
 
 
@@ -121,7 +124,7 @@ def side_score(sample: pd.DataFrame, side: str) -> dict[str, Any]:
         returns = -sample["forward_return"]
         mfe = sample["short_mfe"]
         mae = sample["short_mae"]
-    returns_after_fee = returns - FEE_ROUND_TRIP
+    returns_after_fee = returns - REALISTIC_ROUND_TRIP_FRICTION
     count = int(returns_after_fee.count())
     if count == 0:
         return {
@@ -159,6 +162,18 @@ def quantile_sample(frame: pd.DataFrame, column: str, direction: str, side: str)
         return data[data[column] >= threshold]
     threshold = data[column].quantile(0.20)
     return data[data[column] <= threshold]
+
+
+def top_evaluations(
+    evaluations: list[dict[str, Any]], limit: int = 20
+) -> list[dict[str, Any]]:
+    """Rank observed evidence ahead of uncovered zero-sample rows."""
+
+    return sorted(
+        evaluations,
+        key=lambda item: (item["sample"] > 0, item["mean_after_fee_pct"]),
+        reverse=True,
+    )[:limit]
 
 
 def evaluate_pair_timeframe(
@@ -226,7 +241,10 @@ def build_payload(pair_scope: str, regime_label: str | None) -> dict[str, Any]:
         ] if regime_label else [],
         "timeframes": TIMEFRAMES,
         "pairs": pairs,
-        "fee_round_trip": FEE_ROUND_TRIP,
+        "cost_scenario": REALISTIC_SCENARIO.name,
+        "fee_single_side": REALISTIC_SCENARIO.fee,
+        "slippage_bps": REALISTIC_SCENARIO.slippage_bps,
+        "round_trip_friction": REALISTIC_ROUND_TRIP_FRICTION,
         "min_sample": MIN_SAMPLE,
         "data_audit": audits,
         "evaluations": evaluations,
@@ -250,7 +268,9 @@ def write_markdown(path: Path, payload: dict[str, Any]) -> None:
         f"- Active regime windows: `{', '.join(payload['regime_windows']) or 'all data'}`",
         f"- Pairs: `{', '.join(payload['pairs'])}`",
         f"- Timeframes: `{', '.join(payload['timeframes'])}`",
-        f"- Round-trip fee assumption: `{payload['fee_round_trip']}`",
+        f"- Cost scenario: `{payload['cost_scenario']}`",
+        f"- Underlying round-trip friction: `{payload['round_trip_friction']}` "
+        f"(single-side fee `{payload['fee_single_side']}`, slippage `{payload['slippage_bps']} bps`)",
         f"- Edge candidates: `{len(payload['edge_candidates'])}`",
         "",
         "## Edge Candidates",
@@ -275,7 +295,7 @@ def write_markdown(path: Path, payload: dict[str, Any]) -> None:
             "|---|---|---|---|---:|---:|---:|---|",
         ]
     )
-    top = sorted(payload["evaluations"], key=lambda item: item["mean_after_fee_pct"], reverse=True)[:20]
+    top = top_evaluations(payload["evaluations"])
     for item in top:
         lines.append(
             "| {pair} | {timeframe} | {factor} | {side} | {sample} | {mean_after_fee_pct} | {win_rate} | {verdict} |".format(
