@@ -26,6 +26,22 @@ Do not commit:
 Those belong in local `user_data/strategy_research/knowledge/raw_sources/` and
 other runtime directories.
 
+## Quarantined Market-Structure Domains
+
+`market_structure_chan` is currently a hypothesis-only domain. Its cards record
+confirmation time, signal availability, repaint risk, structural level, and a
+Freqtrade translation, but they cannot authorize strategy generation or become
+durable research experience. The first admissible evidence is the causal 15m
+third-point event study against a simple Donchian breakout/retest baseline:
+
+```bash
+user_data/strategy_research/start_manual_research.sh --chan-event-study
+```
+
+Even a positive event study leaves the cards quarantined pending manual review,
+lookahead-analysis, recursive-analysis, full Freqtrade backtesting, family risk,
+and promotion gates.
+
 ## Runtime Build
 
 After installing the agent runtime, rebuild the usable knowledge layer:

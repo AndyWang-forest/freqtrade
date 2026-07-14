@@ -1,0 +1,86 @@
+{
+  "id": "chan_kline_inclusion_confirmed_fractal",
+  "version": 1,
+  "title": "缠论包含处理与确认分型",
+  "knowledge_domain": "market_structure_chan",
+  "category": "market_structure_definition",
+  "concepts": [
+    "chan_theory",
+    "kline_inclusion",
+    "confirmed_fractal",
+    "causal_signal"
+  ],
+  "source_refs": [
+    "chan_original_lesson_compilation",
+    "freqtrade_lookahead_analysis"
+  ],
+  "source_quality": {
+    "level": "medium",
+    "primary_theory_sources": 1,
+    "official_implementation_safety_sources": 1,
+    "crypto_empirical_sources": 0,
+    "note": "The theory definition is primary-source based, but no crypto profitability evidence is established."
+  },
+  "knowledge": "先按方向合并存在包含关系的K线，再用已经锁定的处理后K线识别顶底分型。分型中心不能在右侧结构尚未完成时回填为可交易信号。",
+  "strategy_hypothesis": "经过因果包含处理并延迟到右侧K线锁定的分型，可以作为后续笔、中枢和第三类买卖点的可复现输入。",
+  "causality_contract": {
+    "confirmation_time": "右侧处理后K线被下一根非包含K线锁定时",
+    "signal_available_time": "锁定动作所在原始15m K线收盘后",
+    "can_repaint": false,
+    "structural_level": "15m raw bars -> inclusion-adjusted bars -> confirmed fractal",
+    "historical_backfill_allowed": false
+  },
+  "freqtrade_translation": {
+    "strategy_family": "market_structure_chan_research",
+    "features": [
+      "chan_inclusion_direction",
+      "chan_confirmed_top_fractal",
+      "chan_confirmed_bottom_fractal",
+      "chan_fractal_available_index"
+    ],
+    "entry_rules": [
+      "分型只能在 signal_available_time 之后参与条件计算",
+      "实际入场最早为确认K线之后的下一根15m K线开盘"
+    ],
+    "exit_rules": [],
+    "applicable_regimes": [
+      "bull",
+      "bear",
+      "range",
+      "high_vol"
+    ],
+    "not_applicable_regimes": []
+  },
+  "data_requirements": [
+    "ohlcv_15m",
+    "data_derived_regime_manifest"
+  ],
+  "risk_notes": [
+    "常见离线实现把分型标回中心K线，会产生未来数据泄露。",
+    "不同包含处理规则会改变后续结构，必须冻结实现版本。"
+  ],
+  "avoid_rules": [
+    "不得用未来K线确认后再把入场时间写回分型中心",
+    "不得把未锁定分型用于策略生成"
+  ],
+  "verification_status": {
+    "state": "quarantined_hypothesis_only",
+    "required_checks": [
+      "prefix_invariance_test",
+      "event_study_edge_check",
+      "baseline_incrementality",
+      "lookahead_analysis",
+      "recursive_analysis",
+      "two_independent_regime_windows",
+      "fee_slippage_stress"
+    ],
+    "quarantined": true
+  },
+  "agent_use": {
+    "eligible_for_strategy_generation": false,
+    "eligible_for_durable_experience": false,
+    "activation_gate": "Third-point event study must show causal incremental edge after realistic cost."
+  },
+  "copyright_note": "Short original local summary. No long source passage is stored.",
+  "created_at_utc": "20260714T000000Z"
+}

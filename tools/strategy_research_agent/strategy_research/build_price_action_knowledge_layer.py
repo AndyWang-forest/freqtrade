@@ -1072,6 +1072,7 @@ def build_cards(transcripts: list[dict[str, Any]]) -> list[dict[str, Any]]:
     CARDS_DIR.mkdir(parents=True, exist_ok=True)
     QUARANTINED_CARDS_DIR.mkdir(parents=True, exist_ok=True)
     preserved_cards: list[dict[str, Any]] = []
+    preserved_quarantined_cards: list[dict[str, Any]] = []
     for path in CARDS_DIR.glob("*.json"):
         try:
             existing = json.loads(path.read_text(encoding="utf-8"))
@@ -1079,6 +1080,13 @@ def build_cards(transcripts: list[dict[str, Any]]) -> list[dict[str, Any]]:
             existing = {}
         if existing.get("agent_use") or existing.get("version") == 1:
             preserved_cards.append(existing)
+    for path in QUARANTINED_CARDS_DIR.glob("*.json"):
+        try:
+            existing = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            existing = {}
+        if existing.get("agent_use") or existing.get("version") == 1:
+            preserved_quarantined_cards.append(existing)
     for path in CARDS_DIR.glob("*.json"):
         path.unlink()
     for path in QUARANTINED_CARDS_DIR.glob("*.json"):
@@ -1110,6 +1118,27 @@ def build_cards(transcripts: list[dict[str, Any]]) -> list[dict[str, Any]]:
         translation.setdefault("not_applicable_regimes", [])
         write_json(CARDS_DIR / f"{card_id}.json", card)
         active_cards.append(card)
+    generated_ids = {card["id"] for card in all_cards}
+    for card in preserved_quarantined_cards:
+        card_id = card.get("id")
+        if not card_id or card_id in generated_ids or card_id in active_ids:
+            continue
+        verification = card.setdefault("verification_status", {})
+        verification["quarantined"] = True
+        verification.setdefault("state", "quarantined_hypothesis_only")
+        verification.setdefault("required_checks", [])
+        card.setdefault("category", "research_hypothesis")
+        card.setdefault("source_quality", {"level": "medium"})
+        card.setdefault("risk_notes", [])
+        card.setdefault("avoid_rules", [])
+        translation = card.setdefault("freqtrade_translation", {})
+        translation.setdefault("strategy_family", "research_only")
+        translation.setdefault("features", [])
+        translation.setdefault("entry_rules", [])
+        translation.setdefault("exit_rules", [])
+        translation.setdefault("applicable_regimes", [])
+        translation.setdefault("not_applicable_regimes", [])
+        write_json(QUARANTINED_CARDS_DIR / f"{card_id}.json", card)
     return active_cards
 
 

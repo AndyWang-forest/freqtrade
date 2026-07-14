@@ -15,7 +15,7 @@ PYTHON="${PYTHON:-./.venv/bin/python}"
 
 usage() {
   cat <<'EOF'
-Usage: user_data/strategy_research/start_manual_research.sh [--quick|--source-scout|--price-action-knowledge|--bilibili-transcripts|--knowledge-graph|--knowledge-guided-hypotheses|--factor-research|--factor-to-strategy|--event-study|--event-execution-alignment|--regime-windows|--current-market-router|--agent-brain|--weekly-knowledge-update|--walk-forward|--promotion-gate|--family-risk-gate|--a1-external-permission|--dryrun-risk-preflight|--trade-behavior|--failure-attribution|--post-run-attribution|--mature-researcher|--mature-researcher-queue|--execute-mature-researcher|--strategy-lineage|--research-memory|--memory-guided-hypotheses|--memory-guided-strategies|--preflight-only] [--extra-agent-arg ARG ...]
+Usage: user_data/strategy_research/start_manual_research.sh [--quick|--source-scout|--price-action-knowledge|--bilibili-transcripts|--knowledge-graph|--knowledge-guided-hypotheses|--factor-research|--factor-to-strategy|--event-study|--chan-event-study|--event-execution-alignment|--regime-windows|--current-market-router|--agent-brain|--weekly-knowledge-update|--walk-forward|--promotion-gate|--family-risk-gate|--a1-external-permission|--dryrun-risk-preflight|--trade-behavior|--failure-attribution|--post-run-attribution|--mature-researcher|--mature-researcher-queue|--execute-mature-researcher|--strategy-lineage|--research-memory|--memory-guided-hypotheses|--memory-guided-strategies|--preflight-only] [--extra-agent-arg ARG ...]
 
 Manual entrypoint for the research-only strategy agent.
 
@@ -34,6 +34,7 @@ Modes:
   --factor-to-strategy
                      Convert factor edge candidates into guarded event-study hypotheses; does not generate strategy classes directly.
   --event-study      Test measurable entry events before strategy generation.
+  --chan-event-study Test causal 15m Chan third-point events against a Donchian retest baseline; keeps Chan cards quarantined.
   --event-execution-alignment
                      Compare event-study signals with actual Freqtrade trade execution.
   --regime-windows   Build data-derived BTC/ETH futures regime windows and quarantine legacy hardcoded regime inference.
@@ -120,6 +121,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --event-study)
       mode="event_study"
+      shift
+      ;;
+    --chan-event-study)
+      mode="chan_event_study"
       shift
       ;;
     --event-execution-alignment)
@@ -409,6 +414,13 @@ case "$mode" in
     "$PYTHON" user_data/strategy_research/run_event_study.py ${extra_args[@]+"${extra_args[@]}"}
     "$PYTHON" user_data/strategy_research/run_research_agent.py --skip-backtests
     ;;
+  chan_event_study)
+    echo "== Strategy Research Agent: quarantined Chan third-point event study =="
+    "$PYTHON" user_data/strategy_research/regime_window_builder.py --check-only
+    "$PYTHON" user_data/strategy_research/build_price_action_knowledge_layer.py
+    "$PYTHON" user_data/strategy_research/build_price_action_knowledge_graph.py
+    "$PYTHON" user_data/strategy_research/run_chan_third_point_event_study.py ${extra_args[@]+"${extra_args[@]}"}
+    ;;
   event_execution_alignment)
     echo "== Strategy Research Agent: event-to-execution alignment =="
     "$PYTHON" user_data/strategy_research/event_execution_alignment.py ${extra_args[@]+"${extra_args[@]}"}
@@ -564,6 +576,7 @@ Memory:     user_data/strategy_research/research_memory/latest_research_memory.m
 Factors:    user_data/strategy_research/factors/latest_factor_research.md
 FactorPlan: user_data/strategy_research/factors/latest_factor_strategy_plan.md
 EventStudy:user_data/strategy_research/event_studies/latest_event_study.md
+ChanStudy: user_data/strategy_research/event_studies/latest_chan_third_point_event_study.md
 Router:    user_data/strategy_research/reports/latest_current_market_state_family_router.md
 MemPlan:    user_data/strategy_research/experiments/memory_guided_hypothesis_ledger.md
 MemStrat:   user_data/strategy_research/experiments/memory_guided_strategy_ledger.md

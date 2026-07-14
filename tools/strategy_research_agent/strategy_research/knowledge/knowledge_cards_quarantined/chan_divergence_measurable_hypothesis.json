@@ -1,0 +1,87 @@
+{
+  "id": "chan_divergence_measurable_hypothesis",
+  "version": 1,
+  "title": "缠论背驰必须先变成可测量假设",
+  "knowledge_domain": "market_structure_chan",
+  "category": "factor_hypothesis",
+  "concepts": [
+    "chan_theory",
+    "divergence",
+    "momentum_decay",
+    "same_direction_comparison"
+  ],
+  "source_refs": [
+    "chan_original_lesson_compilation",
+    "lo_mamaysky_wang_technical_analysis"
+  ],
+  "source_quality": {
+    "level": "medium",
+    "primary_theory_sources": 1,
+    "algorithmic_testing_sources": 1,
+    "crypto_empirical_sources": 0,
+    "note": "Divergence remains underspecified until a frozen quantitative definition is tested."
+  },
+  "knowledge": "背驰应比较同方向、同结构级别走势的推动强度衰减，而不是看到价格与MACD方向不同就直接反向交易。",
+  "strategy_hypothesis": "在两个同方向已锁定离开段之间，比较单位价格推进对应的成交量、真实波幅、持续时间和MACD面积，测试强度衰减是否提高反转或退出概率。",
+  "causality_contract": {
+    "confirmation_time": "第二个同方向结构段被锁定后",
+    "signal_available_time": "锁定第二结构段的确认K线收盘后",
+    "can_repaint": false,
+    "structural_level": "two locked same-direction structural legs",
+    "historical_backfill_allowed": false
+  },
+  "freqtrade_translation": {
+    "strategy_family": "market_structure_chan_research",
+    "features": [
+      "leg_return_per_bar",
+      "leg_atr_normalized_move",
+      "leg_volume_per_price_move",
+      "macd_area_per_leg",
+      "same_level_leg_ratio"
+    ],
+    "entry_rules": [
+      "背驰只作为待验证因子，不作为第一阶段直接入场条件"
+    ],
+    "exit_rules": [
+      "若事件研究证明增量信息，可先测试为减仓或退出因子"
+    ],
+    "applicable_regimes": [
+      "trend_exhaustion",
+      "failed_breakout"
+    ],
+    "not_applicable_regimes": [
+      "unconfirmed_structure"
+    ]
+  },
+  "data_requirements": [
+    "ohlcv_15m",
+    "locked_structural_legs"
+  ],
+  "risk_notes": [
+    "背驰定义自由度高，极易事后解释和参数过拟合。",
+    "不同量纲必须先标准化，不能把MACD视觉面积当作稳定edge。"
+  ],
+  "avoid_rules": [
+    "不得使用最终结构选择参与比较的两段走势",
+    "不得把普通价格指标背离直接命名为缠论背驰"
+  ],
+  "verification_status": {
+    "state": "quarantined_hypothesis_only",
+    "required_checks": [
+      "frozen_factor_definition",
+      "factor_research",
+      "event_study_edge_check",
+      "baseline_incrementality",
+      "two_independent_regime_windows",
+      "lookahead_analysis"
+    ],
+    "quarantined": true
+  },
+  "agent_use": {
+    "eligible_for_strategy_generation": false,
+    "eligible_for_durable_experience": false,
+    "activation_gate": "A separate frozen factor study is required after the third-point study."
+  },
+  "copyright_note": "Short original local summary. No long source passage is stored.",
+  "created_at_utc": "20260714T000000Z"
+}

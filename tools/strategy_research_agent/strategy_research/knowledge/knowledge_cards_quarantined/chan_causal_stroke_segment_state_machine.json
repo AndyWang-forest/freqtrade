@@ -1,0 +1,84 @@
+{
+  "id": "chan_causal_stroke_segment_state_machine",
+  "version": 1,
+  "title": "缠论笔与线段必须使用因果状态机",
+  "knowledge_domain": "market_structure_chan",
+  "category": "market_structure_implementation",
+  "concepts": [
+    "chan_theory",
+    "stroke",
+    "segment",
+    "state_machine",
+    "non_repainting"
+  ],
+  "source_refs": [
+    "chan_original_lesson_compilation",
+    "freqtrade_lookahead_analysis",
+    "freqtrade_recursive_analysis"
+  ],
+  "source_quality": {
+    "level": "medium",
+    "primary_theory_sources": 1,
+    "official_implementation_safety_sources": 2,
+    "crypto_empirical_sources": 0,
+    "note": "The tracked implementation is a conservative research translation, not a claim of canonical community consensus."
+  },
+  "knowledge": "笔和线段的端点在后续反向分型确认前可能继续延伸。研究实现必须区分 provisional 与 locked 状态，只允许已经锁定的端点进入中枢计算。",
+  "strategy_hypothesis": "通过交替确认分型、同类极值替换和端点延迟锁定，可以构造前缀稳定、不回写历史交易信号的结构状态机。",
+  "causality_contract": {
+    "confirmation_time": "反向确认分型出现并锁定上一端点时",
+    "signal_available_time": "锁定端点的确认K线收盘后",
+    "can_repaint": false,
+    "structural_level": "confirmed fractal -> locked pivot -> locked stroke; segment remains research-only",
+    "historical_backfill_allowed": false
+  },
+  "freqtrade_translation": {
+    "strategy_family": "market_structure_chan_research",
+    "features": [
+      "chan_locked_pivot_type",
+      "chan_locked_pivot_value",
+      "chan_locked_stroke_high",
+      "chan_locked_stroke_low",
+      "chan_structure_version"
+    ],
+    "entry_rules": [
+      "只使用 locked pivots 和 locked strokes",
+      "provisional endpoint 只能用于诊断显示，不能触发入场"
+    ],
+    "exit_rules": [],
+    "applicable_regimes": [
+      "all_data_derived_regimes"
+    ],
+    "not_applicable_regimes": []
+  },
+  "data_requirements": [
+    "ohlcv_15m",
+    "startup_history"
+  ],
+  "risk_notes": [
+    "直接在完整DataFrame上回溯修正端点会制造重绘收益。",
+    "startup candle 数量变化可能改变递归结构，必须做前缀和startup稳定性检查。"
+  ],
+  "avoid_rules": [
+    "不得使用最终图形回填历史笔和线段",
+    "不得声称该研究翻译等同于所有缠论实现"
+  ],
+  "verification_status": {
+    "state": "quarantined_hypothesis_only",
+    "required_checks": [
+      "prefix_invariance_test",
+      "startup_history_sensitivity",
+      "event_study_edge_check",
+      "lookahead_analysis",
+      "recursive_analysis"
+    ],
+    "quarantined": true
+  },
+  "agent_use": {
+    "eligible_for_strategy_generation": false,
+    "eligible_for_durable_experience": false,
+    "activation_gate": "Causal structure implementation and downstream event evidence must both pass."
+  },
+  "copyright_note": "Short original local summary. No long source passage is stored.",
+  "created_at_utc": "20260714T000000Z"
+}

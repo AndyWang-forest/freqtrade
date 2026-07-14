@@ -147,6 +147,46 @@ PUBLIC_WEB_SOURCES = [
         "kind": "market_microstructure_article",
         "license": "public webpage snapshot for local research",
     },
+    {
+        "id": "chan_lesson_20_hub_third_point",
+        "title": "教你炒股票20：缠中说禅走势中枢级别扩张及第三类买卖点",
+        "url": "https://iczsc.com/read/020/",
+        "author": "缠中说禅",
+        "kind": "primary_theory_mirror",
+        "license": "public webpage metadata and bounded local research snapshot",
+    },
+    {
+        "id": "chan_original_lesson_compilation",
+        "title": "教你炒股票系列原文汇编",
+        "url": "https://resources.chzhshch.blog/docs/marketstudent/%E7%BC%A0%E4%B8%AD%E8%AF%B4%E7%A6%85%E6%96%87%E9%9B%86--%E6%95%99%E4%BD%A0%E7%82%92%E8%82%A1%E7%A5%A8%E7%B3%BB%E5%88%97.pdf",
+        "author": "缠中说禅",
+        "kind": "primary_theory_compilation",
+        "license": "public PDF metadata and bounded local research snapshot; no file is versioned",
+    },
+    {
+        "id": "lo_mamaysky_wang_technical_analysis",
+        "title": "Foundations of Technical Analysis: Computational Algorithms, Statistical Inference, and Empirical Implementation",
+        "url": "https://stuff.mit.edu/people/wangj/pap/LoMamayskyWang00.pdf",
+        "author": "Andrew W. Lo, Harry Mamaysky, Jiang Wang",
+        "kind": "academic_paper",
+        "license": "public academic paper metadata and bounded local research snapshot",
+    },
+    {
+        "id": "freqtrade_lookahead_analysis",
+        "title": "Freqtrade Lookahead Analysis",
+        "url": "https://docs.freqtrade.io/en/latest/lookahead-analysis/",
+        "author": "Freqtrade",
+        "kind": "official_documentation",
+        "license": "public official documentation",
+    },
+    {
+        "id": "freqtrade_recursive_analysis",
+        "title": "Freqtrade Recursive Analysis",
+        "url": "https://docs.freqtrade.io/en/stable/recursive-analysis/",
+        "author": "Freqtrade",
+        "kind": "official_documentation",
+        "license": "public official documentation",
+    },
 ]
 
 
