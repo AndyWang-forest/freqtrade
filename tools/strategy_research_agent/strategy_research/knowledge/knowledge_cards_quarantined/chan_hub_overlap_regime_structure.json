@@ -1,0 +1,88 @@
+{
+  "id": "chan_hub_overlap_regime_structure",
+  "version": 1,
+  "title": "缠论中枢作为重叠结构而非主观画框",
+  "knowledge_domain": "market_structure_chan",
+  "category": "market_structure_regime",
+  "concepts": [
+    "chan_theory",
+    "hub",
+    "overlap",
+    "trend",
+    "range",
+    "regime_structure"
+  ],
+  "source_refs": [
+    "chan_lesson_20_hub_third_point",
+    "chan_original_lesson_compilation"
+  ],
+  "source_quality": {
+    "level": "medium",
+    "primary_theory_sources": 2,
+    "crypto_empirical_sources": 0,
+    "note": "Definition evidence is available; market and crypto edge remain unverified."
+  },
+  "knowledge": "第一版量化翻译把三个连续已锁定笔区间的非空价格交集定义为候选中枢。中枢是结构重叠证据，不自动等同于可交易震荡区间。",
+  "strategy_hypothesis": "中枢宽度、持续笔数和离开方向可以作为市场结构特征，与数据生成的bull/bear/range/high_vol标签共同解释策略族适用性。",
+  "causality_contract": {
+    "confirmation_time": "第三个已锁定笔完成时",
+    "signal_available_time": "锁定第三个笔的15m确认K线收盘后",
+    "can_repaint": false,
+    "structural_level": "three consecutive locked stroke ranges",
+    "historical_backfill_allowed": false
+  },
+  "freqtrade_translation": {
+    "strategy_family": "market_structure_chan_research",
+    "features": [
+      "chan_hub_lower",
+      "chan_hub_upper",
+      "chan_hub_width_pct",
+      "chan_hub_confirmed_index",
+      "regime_label"
+    ],
+    "entry_rules": [
+      "中枢本身不直接开仓",
+      "必须等待离开和因果回测确认"
+    ],
+    "exit_rules": [
+      "重新进入已离开的中枢视为第三类买卖点假设失效"
+    ],
+    "applicable_regimes": [
+      "bull",
+      "bear",
+      "range",
+      "high_vol"
+    ],
+    "not_applicable_regimes": []
+  },
+  "data_requirements": [
+    "ohlcv_15m",
+    "data_derived_regime_manifest"
+  ],
+  "risk_notes": [
+    "滚动的三笔重叠可能产生相邻重复中枢，事件必须去簇。",
+    "结构级别不是固定时间周期的同义词。"
+  ],
+  "avoid_rules": [
+    "不得手动画框后选择最好结果",
+    "不得用中枢标签替代数据生成的regime router"
+  ],
+  "verification_status": {
+    "state": "quarantined_hypothesis_only",
+    "required_checks": [
+      "event_declustering",
+      "event_study_edge_check",
+      "regime_matrix",
+      "baseline_incrementality",
+      "two_independent_regime_windows"
+    ],
+    "quarantined": true
+  },
+  "agent_use": {
+    "eligible_for_strategy_generation": false,
+    "eligible_for_durable_experience": false,
+    "activation_gate": "Hub-derived events must replicate in data-derived regime windows."
+  },
+  "copyright_note": "Short original local summary. No long source passage is stored.",
+  "created_at_utc": "20260714T000000Z"
+}

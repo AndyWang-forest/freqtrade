@@ -1,0 +1,97 @@
+{
+  "id": "chan_third_point_breakout_retest",
+  "version": 1,
+  "title": "缠论第三类买卖点的突破回测翻译",
+  "knowledge_domain": "market_structure_chan",
+  "category": "event_hypothesis",
+  "concepts": [
+    "chan_theory",
+    "third_buy_point",
+    "third_sell_point",
+    "hub_departure",
+    "breakout_retest"
+  ],
+  "source_refs": [
+    "chan_lesson_20_hub_third_point",
+    "lo_mamaysky_wang_technical_analysis",
+    "freqtrade_lookahead_analysis"
+  ],
+  "source_quality": {
+    "level": "medium",
+    "primary_theory_sources": 1,
+    "algorithmic_testing_sources": 1,
+    "official_implementation_safety_sources": 1,
+    "crypto_empirical_sources": 0,
+    "note": "The event is algorithmically testable, but no crypto edge is assumed."
+  },
+  "knowledge": "第三类买点可翻译为价格结构离开已确认中枢后，随后已锁定的回测低点仍高于中枢上沿；第三类卖点为向下离开后，回测高点仍低于中枢下沿。",
+  "strategy_hypothesis": "15m第三类买卖点在下一根K线开盘执行后，其1h/3h/8h收益分布应在真实成本后优于同方向24h Donchian突破回测基线。",
+  "causality_contract": {
+    "confirmation_time": "回测分型被下一反向分型锁定时",
+    "signal_available_time": "锁定回测分型的15m确认K线收盘后",
+    "can_repaint": false,
+    "structural_level": "locked hub -> locked departure pivot -> locked non-reentry retest pivot",
+    "historical_backfill_allowed": false
+  },
+  "freqtrade_translation": {
+    "strategy_family": "market_structure_chan_research",
+    "features": [
+      "chan_hub_upper",
+      "chan_hub_lower",
+      "chan_departure_pivot",
+      "chan_retest_pivot",
+      "chan_third_point_side"
+    ],
+    "entry_rules": [
+      "第三类买点：top pivot离开上沿，后续locked bottom仍高于上沿",
+      "第三类卖点：bottom pivot离开下沿，后续locked top仍低于下沿",
+      "最早在signal_available_time之后的下一根15m K线开盘入场"
+    ],
+    "exit_rules": [
+      "第一阶段事件研究只比较固定1h/3h/8h前瞻，不生成策略出场"
+    ],
+    "applicable_regimes": [
+      "bull",
+      "bear",
+      "range",
+      "high_vol"
+    ],
+    "not_applicable_regimes": []
+  },
+  "data_requirements": [
+    "ohlcv_15m",
+    "data_derived_regime_manifest",
+    "realistic_cost_model"
+  ],
+  "risk_notes": [
+    "确认延迟可能让高杠杆入场错过主要波动。",
+    "稀疏信号不能用单一近期窗口判定有效或无效。",
+    "50x会把0.15%的往返成本放大为约7.5个账户收益百分点。"
+  ],
+  "avoid_rules": [
+    "不得在事件研究通过前生成策略类",
+    "不得因为latest5无信号否定home-regime结构",
+    "不得用第三类买卖点名称包装普通追突破"
+  ],
+  "verification_status": {
+    "state": "quarantined_hypothesis_only",
+    "required_checks": [
+      "event_study_edge_check",
+      "baseline_incrementality",
+      "event_declustering",
+      "two_independent_regime_windows",
+      "fee_slippage_stress",
+      "lookahead_analysis",
+      "recursive_analysis",
+      "freqtrade_backtesting"
+    ],
+    "quarantined": true
+  },
+  "agent_use": {
+    "eligible_for_strategy_generation": false,
+    "eligible_for_durable_experience": false,
+    "activation_gate": "Manual review after causal event edge, baseline incrementality, and independent-window replication."
+  },
+  "copyright_note": "Short original local summary. No long source passage is stored.",
+  "created_at_utc": "20260714T000000Z"
+}

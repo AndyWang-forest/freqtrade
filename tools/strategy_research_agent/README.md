@@ -157,6 +157,7 @@ must include these active domains before normal strategy research:
 - crypto derivatives structure such as funding, open interest, liquidation, and mark/index basis
 - market microstructure and execution cost such as spread, slippage, order book depth, and minimum edge
 - cross-asset lead-lag and common market-factor context
+- quarantined market-structure hypotheses such as causal Chan third points
 - Freqtrade runtime execution hooks and config override checks
 
 Any hypothesis that uses non-OHLCV concepts must first verify the required data

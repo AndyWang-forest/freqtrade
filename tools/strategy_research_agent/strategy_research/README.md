@@ -130,6 +130,7 @@ user_data/strategy_research/start_manual_research.sh --knowledge-guided-hypothes
 user_data/strategy_research/start_manual_research.sh --factor-research
 user_data/strategy_research/start_manual_research.sh --factor-to-strategy
 user_data/strategy_research/start_manual_research.sh --event-study
+user_data/strategy_research/start_manual_research.sh --chan-event-study
 user_data/strategy_research/start_manual_research.sh --event-execution-alignment
 user_data/strategy_research/start_manual_research.sh --regime-windows
 user_data/strategy_research/start_manual_research.sh --current-market-router
@@ -217,6 +218,7 @@ still require trade-level artifacts before dry-run review.
 - Factor research: `user_data/strategy_research/factors/latest_factor_research.md`
 - Factor-to-strategy plan: `user_data/strategy_research/factors/latest_factor_strategy_plan.md`
 - Event study: `user_data/strategy_research/event_studies/latest_event_study.md`
+- Chan third-point event study: `user_data/strategy_research/event_studies/latest_chan_third_point_event_study.md`
 - Current market router: `user_data/strategy_research/reports/latest_current_market_state_family_router.md`
 - Regime windows: `user_data/strategy_research/regime_windows/latest_regime_windows.md`
 - Regime quarantine: `user_data/strategy_research/regime_windows/regime_inference_quarantine.md`

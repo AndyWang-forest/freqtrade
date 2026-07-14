@@ -1,0 +1,86 @@
+{
+  "id": "chan_anti_repaint_lookahead_contract",
+  "version": 1,
+  "title": "缠论研究的防重绘与防未来数据契约",
+  "knowledge_domain": "market_structure_chan",
+  "category": "validation_contract",
+  "concepts": [
+    "chan_theory",
+    "anti_repaint",
+    "lookahead_bias",
+    "recursive_bias",
+    "prefix_invariance"
+  ],
+  "source_refs": [
+    "chan_original_lesson_compilation",
+    "freqtrade_lookahead_analysis",
+    "freqtrade_recursive_analysis"
+  ],
+  "source_quality": {
+    "level": "high",
+    "primary_theory_sources": 1,
+    "official_implementation_safety_sources": 2,
+    "crypto_empirical_sources": 0,
+    "note": "This card governs implementation safety, not trading profitability."
+  },
+  "knowledge": "任何缠论结构都必须保存pivot_time、confirmation_time和signal_available_time。用完整历史重画结构后回填信号、用负shift、或让startup长度改变历史交易信号，都属于不可接受的研究证据。",
+  "strategy_hypothesis": "只有通过前缀不变性、startup稳定性、lookahead-analysis和recursive-analysis的结构实现，才允许进入Freqtrade策略验证。",
+  "causality_contract": {
+    "confirmation_time": "每个结构对象各自明确记录",
+    "signal_available_time": "不得早于结构对象confirmation_time",
+    "can_repaint": false,
+    "structural_level": "all market_structure_chan objects",
+    "historical_backfill_allowed": false
+  },
+  "freqtrade_translation": {
+    "strategy_family": "validation",
+    "features": [
+      "pivot_time",
+      "confirmation_time",
+      "signal_available_time",
+      "structure_version",
+      "startup_history_bars"
+    ],
+    "entry_rules": [
+      "populate_entry_trend只能读取当前行及以前已确认结构",
+      "事件研究按下一根K线开盘计算执行"
+    ],
+    "exit_rules": [],
+    "applicable_regimes": [
+      "all"
+    ],
+    "not_applicable_regimes": []
+  },
+  "data_requirements": [
+    "ohlcv_15m",
+    "prefix_replay_fixture",
+    "freqtrade_analysis_tools"
+  ],
+  "risk_notes": [
+    "结构图看起来正确不代表历史当时可知。",
+    "高杠杆会放大任何由确认时间错误制造的虚假优势。"
+  ],
+  "avoid_rules": [
+    "禁止负shift和未来窗口",
+    "禁止把最终分型时间当作可交易时间",
+    "禁止未通过防偏差检查就写入active knowledge或registry"
+  ],
+  "verification_status": {
+    "state": "quarantined_hypothesis_only",
+    "required_checks": [
+      "prefix_invariance_test",
+      "startup_history_sensitivity",
+      "lookahead_analysis",
+      "recursive_analysis",
+      "event_execution_alignment"
+    ],
+    "quarantined": true
+  },
+  "agent_use": {
+    "eligible_for_strategy_generation": false,
+    "eligible_for_durable_experience": false,
+    "activation_gate": "This contract remains mandatory even after individual Chan hypotheses are validated."
+  },
+  "copyright_note": "Short original local summary. No long source passage is stored.",
+  "created_at_utc": "20260714T000000Z"
+}
