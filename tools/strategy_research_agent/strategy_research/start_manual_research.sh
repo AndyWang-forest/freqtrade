@@ -295,7 +295,7 @@ fi
 
 if [[ ! -f user_data/strategy_research/research_allocation/latest_research_family_allocator.json ]]; then
   echo "== Strategy Research Agent: bootstrap independent research allocator =="
-  "$PYTHON" user_data/strategy_research/research_family_allocator.py
+  "$PYTHON" user_data/strategy_research/research_family_allocator.py "${pair_scope_args[@]}"
 fi
 
 if [[ ! -f user_data/strategy_research/failure_funnel/latest_research_failure_funnel.json ]]; then
@@ -332,7 +332,7 @@ run_research_postmortem() {
 run_research_reflection() {
   run_research_postmortem
   echo "== Strategy Research Agent: independent research-family allocator =="
-  "$PYTHON" user_data/strategy_research/research_family_allocator.py
+  "$PYTHON" user_data/strategy_research/research_family_allocator.py "${pair_scope_args[@]}"
 }
 
 case "$mode" in
