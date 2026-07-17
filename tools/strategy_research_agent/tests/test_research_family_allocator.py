@@ -299,6 +299,48 @@ def test_completed_factor_failure_is_scoped_to_matching_current_windows(tmp_path
     assert changed["uptrend_failed_pullback_long"] == []
 
 
+def test_completed_factor_failure_is_scoped_to_requested_pair_universe(tmp_path) -> None:
+    factor_report = tmp_path / "factor_report.json"
+    factor_report.write_text(
+        __import__("json").dumps(
+            {
+                "pair_scope": "core",
+                "regime_label": "bull",
+                "regime_windows": ["bull_0", "bull_1"],
+                "research_target": {"family_codes": ["A2"]},
+                **_current_factor_protocol(),
+            }
+        ),
+        encoding="utf-8",
+    )
+    event_payload = {
+        "factor_event_method_version": FACTOR_EVENT_METHOD_VERSION,
+        "factor_report": str(factor_report),
+        "pair_scope": "core",
+        "regime_label": "bull",
+        "research_target": {"family_codes": ["A2"]},
+        "summary": {
+            "gross_factor_candidates": 2,
+            "validated_events": 0,
+            "verdict": "no_validated_factor_event",
+        },
+    }
+    (tmp_path / "latest_factor_candidate_event_study__a2.json").write_text(
+        __import__("json").dumps(event_payload),
+        encoding="utf-8",
+    )
+
+    core = allocator.completed_factor_failure_records(
+        _manifest(), tmp_path, pair_scope="core"
+    )
+    expanded = allocator.completed_factor_failure_records(
+        _manifest(), tmp_path, pair_scope="research_all"
+    )
+
+    assert len(core["uptrend_failed_pullback_long"]) == 1
+    assert expanded["uptrend_failed_pullback_long"] == []
+
+
 def test_legacy_factor_protocol_reopens_same_window_family(tmp_path) -> None:
     factor_report = tmp_path / "factor_report.json"
     factor_report.write_text(

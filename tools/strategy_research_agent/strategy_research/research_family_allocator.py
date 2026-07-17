@@ -8,6 +8,7 @@ data-derived home regimes.  It never enables a strategy or generates code.
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 from collections import Counter
@@ -15,8 +16,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from family_exit_risk_contract import canonical_family_id
 from factor_research_protocol import FACTOR_EVENT_METHOD_VERSION, is_current_regime_factor_report
+from family_exit_risk_contract import canonical_family_id
 from repo_paths import find_repo_root
 from strategy_taxonomy import STRATEGY_TAXONOMY
 
@@ -79,6 +80,7 @@ EXPLICIT_COMPOSITE_FAMILY_ALIASES = {
 SAME_EVIDENCE_FAILURE_LIMIT = 3
 MIN_INDEPENDENT_HOME_WINDOWS = 2
 EVIDENCE_WAIT_STATUS = "evidence_saturated_wait_for_new_episode"
+PAIR_SCOPES = ("core", "extension", "research_all")
 
 
 def now_utc() -> str:
@@ -114,6 +116,7 @@ def allocation_target_fingerprint(
         "action": allocation.get("action"),
         "selected_family": allocation.get("selected_family"),
         "family_code": allocation.get("family_code"),
+        "pair_scope": allocation.get("pair_scope") or "core",
         "regime_label": allocation.get("regime_label"),
         "allowed_sides": sorted(allocation.get("allowed_sides") or []),
         "active_home_windows": sorted(
@@ -271,6 +274,8 @@ def factor_report_auxiliary_inputs_current(factor_report: dict[str, Any]) -> boo
 def completed_factor_failure_records(
     manifest: dict[str, Any],
     event_dir: Path = EVENT_STUDY_DIR,
+    *,
+    pair_scope: str = "core",
 ) -> dict[str, list[str]]:
     """Find completed factor searches that used the current home windows.
 
@@ -310,7 +315,13 @@ def completed_factor_failure_records(
             continue
         if not is_current_regime_factor_report(factor_report):
             continue
-        if not factor_report_auxiliary_inputs_current(factor_report):
+        report_pair_scope = str(
+            payload.get("pair_scope") or factor_report.get("pair_scope") or "core"
+        )
+        if (
+            not factor_report_auxiliary_inputs_current(factor_report)
+            or report_pair_scope != pair_scope
+        ):
             continue
 
         report_windows = {
@@ -341,8 +352,14 @@ def global_family_coverage(
     memory: dict[str, Any],
     manifest: dict[str, Any],
     event_dir: Path = EVENT_STUDY_DIR,
+    *,
+    pair_scope: str = "core",
 ) -> dict[str, dict[str, Any]]:
-    completed_factor_failures = completed_factor_failure_records(manifest, event_dir)
+    completed_factor_failures = completed_factor_failure_records(
+        manifest,
+        event_dir,
+        pair_scope=pair_scope,
+    )
     coverage = {
         family: {
             "durable_lessons": [],
@@ -394,6 +411,8 @@ def current_gross_fail_families(
     funnel: dict[str, Any],
     factor_report: dict[str, Any] | None = None,
     factor_event_report: dict[str, Any] | None = None,
+    *,
+    pair_scope: str = "core",
 ) -> set[str]:
     """Pause the completed target until its causal evidence changes.
 
@@ -403,6 +422,13 @@ def current_gross_fail_families(
     """
 
     if factor_report is not None and not is_current_regime_factor_report(factor_report):
+        return set()
+    current_pair_scope = str(
+        (factor_event_report or {}).get("pair_scope")
+        or (factor_report or {}).get("pair_scope")
+        or "core"
+    )
+    if current_pair_scope != pair_scope:
         return set()
     decision = funnel.get("current_target_decision") or {}
     if decision.get("decision") != "stop_adjacent_variant_generation":
@@ -577,7 +603,9 @@ def score_family(
     }
 
 
-def build_payload() -> dict[str, Any]:
+def build_payload(pair_scope: str = "core") -> dict[str, Any]:
+    if pair_scope not in PAIR_SCOPES:
+        raise ValueError(f"Unsupported pair scope: {pair_scope}")
     postmortem = load_json(POSTMORTEM_JSON)
     router = load_json(ROUTER_JSON)
     manifest = load_json(MANIFEST_JSON)
@@ -593,11 +621,19 @@ def build_payload() -> dict[str, Any]:
 
     counts = registry_counts(registry)
     postmortem_by_family = family_postmortem(postmortem)
-    global_coverage = global_family_coverage(memory, manifest)
+    if pair_scope == "core":
+        global_coverage = global_family_coverage(memory, manifest)
+    else:
+        global_coverage = global_family_coverage(
+            memory,
+            manifest,
+            pair_scope=pair_scope,
+        )
     current_gross_fail = current_gross_fail_families(
         failure_funnel,
         factor_report,
         factor_event_report,
+        pair_scope=pair_scope,
     )
     current_blocker_fingerprint = str(
         (failure_funnel.get("current_target_decision") or {}).get("blocker_fingerprint") or ""
@@ -639,6 +675,7 @@ def build_payload() -> dict[str, Any]:
         allocation = {
             "action": "no_research_allocation",
             "selected_family": None,
+            "pair_scope": pair_scope,
             "reason": "No unsuspended family has enough independent data-derived home windows.",
             "strategy_synthesis_allowed": False,
         }
@@ -647,6 +684,7 @@ def build_payload() -> dict[str, Any]:
             "action": "research",
             "selected_family": selected["strategy_family"],
             "family_code": selected["family_code"],
+            "pair_scope": pair_scope,
             "regime_label": selected["home_regime_label"],
             "allowed_sides": [selected["direction"]] if selected["direction"] in {"long", "short"} else ["long", "short"],
             "active_home_windows": selected["active_home_windows"],
@@ -663,6 +701,7 @@ def build_payload() -> dict[str, Any]:
         "generated_at_utc": now_utc(),
         "schema_version": 7,
         "research_only": True,
+        "pair_scope": pair_scope,
         "deployment_permission": deployment_permission(router),
         "research_allocation": allocation,
         "candidate_ranking": candidates,
@@ -759,8 +798,15 @@ def write_outputs(payload: dict[str, Any]) -> tuple[Path, Path]:
     return json_path, md_path
 
 
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--pair-scope", choices=PAIR_SCOPES, default="core")
+    return parser.parse_args()
+
+
 def main() -> int:
-    payload = build_payload()
+    args = parse_args()
+    payload = build_payload(args.pair_scope)
     json_path, md_path = write_outputs(payload)
     allocation = payload["research_allocation"]
     print(f"Wrote {rel(json_path)}")
