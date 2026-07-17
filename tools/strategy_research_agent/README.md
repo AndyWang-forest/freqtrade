@@ -126,16 +126,23 @@ Rebuild the Agent brain from the versioned knowledge cards, local research memor
 user_data/strategy_research/start_manual_research.sh --agent-brain
 ```
 
-Classify the current market and route the next research round to a compatible
-strategy family, or explicitly choose no-trade:
+Classify the current market for deployment permission, or explicitly choose
+no-trade:
 
 ```bash
 user_data/strategy_research/start_manual_research.sh --current-market-router
 ```
 
-Research modes that generate or validate hypotheses run this router before
-their main work so strategy families are not evaluated in mismatched regimes by
-default.
+The router does not allocate research. Rebuild the E1-E41 postmortem and choose
+the next under-covered family independently:
+
+```bash
+user_data/strategy_research/start_manual_research.sh --research-postmortem
+user_data/strategy_research/start_manual_research.sh --research-allocator
+```
+
+Research modes refresh both surfaces: current deployment permission stays
+separate from historical home-regime research allocation.
 
 Weekly external knowledge update:
 
@@ -277,12 +284,16 @@ On Windows, use `README_WINDOWS.md` for the PowerShell cycle runner and Task Sch
 - Research only.
 - No live trading startup.
 - No live API key access.
-- No PR, comment, review, issue, or push operation may target the official upstream `freqtrade/freqtrade` repository. The official upstream may exist only as a read-only fetch remote; all writable GitHub work must target the user's fork or this local repository.
+- No PR, comment, review, issue, or push operation may target the official upstream `freqtrade/freqtrade` repository. The official upstream may exist only as a read-only fetch remote. All Agent `gh` CLI write/status-changing operations must use `strategy_research/safe_gh_write.py`, bind the repository to `AndyWang-forest/freqtrade`, and avoid direct `gh api` writes. Git pushes must use the verified personal `origin`, with upstream push disabled.
 - No generated reports, market data, or local credentials should be committed.
-- Generated strategies must come from knowledge graph, research memory, factor/event evidence, and explicit strategy-family contracts.
+- Generated strategies must come from the independent research allocation, knowledge graph, research memory, typed multi-domain factor/event evidence, and explicit strategy-family contracts. The current router controls deployment permission only.
+- Factor/event discovery must freeze thresholds on the earliest chronological home episode, execute completed-candle signals at the next candle open, test gross edge before realistic cost, de-cluster overlapping events, and replicate the unchanged threshold in a later independent data-derived regime window. A gross-positive single-factor row is supporting evidence only: it may enter structural composition even when its isolated cost or replication gate fails, but the family-factor composite must pass gross, realistic-cost, independent-window, and runtime-compatibility gates. Auxiliary inputs must also have a causal Freqtrade runtime data path. All-history scans are diagnostics and cannot overwrite the current-target report. Strategy code generation additionally requires a `source_event_id` that matches the current validated family-factor composite plan.
+- The current failure funnel must be refreshed before the next experiment. No adjacent filter may be generated when the validated-event count is zero or the blocker fingerprint is unchanged.
+- Family-gate runtime evidence must distinguish native finite Freqtrade protections from persistent account-level disable diagnostics; completed-trade replay cannot be labeled native runtime PnL.
 - The knowledge graph is multi-domain. Price-action ideas must be checked against regime, derivatives, microstructure, cross-asset, and execution-cost context when relevant.
 - Non-OHLCV requirements such as funding, OI, mark/index basis, spread/slippage, L2/order-book data, regime manifest, or runtime config dumps must be verified before strategy synthesis.
-- Every strategy research round must run the current market-state family router before choosing the next strategy family; no-trade is a valid router result.
+- Every strategy research round must refresh current deployment permission plus the E1-E41 postmortem and independent allocator. No-trade is a valid deployment result and never forces the research family.
+- Three consecutive edge-readable failures using the same family, mechanism, and data source suspend adjacent variants. Data/sample blockers do not count as edge failures.
 - Memory-guided variants must lock the current futures risk policy: isolated USDT-M futures, 50x cap, ROI `{"0":1.20,"180":1.50,"360":1.00}`, and stoploss `-0.60`.
 - Walk-forward validation must reject strategies that only work in one favorable calendar window.
 - Promotion gate only records readiness for manual dry-run review; it never starts dry-run/live trading.

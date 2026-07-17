@@ -25,6 +25,7 @@ LATEST_JSON = OUTPUT_DIR / "latest_research_consolidation.json"
 LATEST_MD = OUTPUT_DIR / "latest_research_consolidation.md"
 OPERATING_RULES_JSON = OUTPUT_DIR / "agent_operating_rules.json"
 WORKFLOW_CONTRACT_MD = OUTPUT_DIR / "agent_workflow_contract.md"
+OPERATING_RULES_DEFAULT_JSON = Path(__file__).resolve().parent / "consolidation/agent_operating_rules.default.json"
 
 MEMORY_JSON = AGENT_ROOT / "research_memory/latest_research_memory.json"
 GRAPH_CONTEXT_JSON = AGENT_ROOT / "knowledge/graph/strategy_agent_graph_context.json"
@@ -34,11 +35,18 @@ PROMOTION_JSON = AGENT_ROOT / "promotion_reports/latest_promotion_report.json"
 WEEKLY_KNOWLEDGE_UPDATE_JSON = AGENT_ROOT / "knowledge_updates/latest_weekly_knowledge_update.json"
 REGIME_WINDOWS_JSON = AGENT_ROOT / "regime_windows/latest_regime_windows.json"
 REGIME_QUARANTINE_JSON = AGENT_ROOT / "regime_windows/regime_inference_quarantine.json"
+FAILURE_FUNNEL_JSON = AGENT_ROOT / "failure_funnel/latest_research_failure_funnel.json"
+PROGRAM_POSTMORTEM_JSON = AGENT_ROOT / "postmortems/latest_research_program_postmortem.json"
+RESEARCH_ALLOCATOR_JSON = AGENT_ROOT / "research_allocation/latest_research_family_allocator.json"
 
 
 REQUIRED_GATES = [
     "current_market_state_family_router",
+    "research_program_postmortem",
+    "research_family_allocator",
     "factor_research",
+    "factor_candidate_event_study",
+    "research_failure_funnel",
     "factor_to_strategy_plan",
     "event_study_edge_check",
     "freqtrade_backtesting",
@@ -59,17 +67,20 @@ TIMEFRAME_POLICY = {
     "forbidden_primary_entry_timeframes": ["1h", "4h", "1d"],
     "rule": "For fixed 50x futures research, 1h can only be used as background/regime/confirmation, not as the primary entry timeframe.",
 }
-FACTOR_RESEARCH_POLICY = {
-    "same_agent_subflow": True,
-    "runs_before_event_study": True,
-    "runs_before_strategy_generation": True,
-    "allowed_primary_timeframes": ["3m", "5m", "15m"],
-    "default_pair_scope": "core",
-    "available_pair_scopes": ["core", "extension", "research_all"],
-    "latest_factor_report": "user_data/strategy_research/factors/latest_factor_research.json",
-    "latest_factor_strategy_plan": "user_data/strategy_research/factors/latest_factor_strategy_plan.json",
-    "rule": "Knowledge and memory propose research directions; factor research tests forward-return/MFE/MAE evidence on the explicit pair scope; only factor edge candidates may become event-study hypotheses before strategy generation.",
-}
+
+
+def load_versioned_factor_research_policy() -> dict[str, Any]:
+    """Load the tracked factor contract so generated runtime rules cannot drift."""
+    payload = json.loads(OPERATING_RULES_DEFAULT_JSON.read_text(encoding="utf-8"))
+    policy = payload.get("factor_research_policy")
+    if not isinstance(policy, dict):
+        raise ValueError(
+            f"missing factor_research_policy in {OPERATING_RULES_DEFAULT_JSON}"
+        )
+    return policy
+
+
+FACTOR_RESEARCH_POLICY = load_versioned_factor_research_policy()
 EXTERNAL_BRAIN_POLICY = {
     "required_knowledge_domains": ["price_action", "regime", "derivatives", "microstructure", "cross_asset", "execution"],
     "required_minimum_data_requirements": ["ohlcv", "regime_manifest", "fee_model", "slippage_model"],
@@ -297,6 +308,9 @@ def build_payload() -> dict[str, Any]:
     weekly_update = load_json(WEEKLY_KNOWLEDGE_UPDATE_JSON)
     regime_windows = load_json(REGIME_WINDOWS_JSON)
     regime_quarantine = load_json(REGIME_QUARANTINE_JSON)
+    failure_funnel = load_json(FAILURE_FUNNEL_JSON)
+    program_postmortem = load_json(PROGRAM_POSTMORTEM_JSON)
+    research_allocator = load_json(RESEARCH_ALLOCATOR_JSON)
     required_checks = Counter()
     knowledge_domains = Counter()
     data_requirements = Counter()
@@ -322,16 +336,19 @@ def build_payload() -> dict[str, Any]:
             "No OHLCV or L2-inspired hypothesis can generate a strategy class before an event study shows edge_candidate, unless the run is explicitly labeled counterexample or negative-control.",
             "No event-study edge may support promotion unless event-to-Freqtrade execution alignment explains whether the signal became actual trades under startup, order, max-open-trades, protection, and exit rules.",
             "No backtest round can feed the next experiment queue until post-run attribution has identified signal, timing, exit, cost, risk, regime, and sample-size failure modes.",
+            "No adjacent strategy variant may be generated while the current failure-funnel blocker is unchanged or the current validated factor-event count is zero.",
             "Regime windows must come from user_data/strategy_research/regime_windows/latest_regime_windows.json; legacy hardcoded bull_home/range_home/bear_home/high_vol_hostile windows are quarantined and cannot fuel strategy generation or promotion.",
             "No family-risk or promotion gate may choose an experiment CSV by modification time; use an explicit path or the SHA-256-locked experiment source pointer.",
             "No low-confidence regime window with label_share below 0.55 may act as active home/hostile promotion evidence.",
-            "Every experiment round must run the current market-state family router before choosing which strategy family to research; no-trade is a valid router decision.",
+            "Every experiment round must separate current trade permission from research allocation: the current market-state router controls deployment only, while the independent allocator chooses which missing family to research across data-derived home regimes.",
+            "No family may receive another same-mechanism/same-data adjacent experiment after three consecutive edge-readable failures; data/sample blockers do not count as edge failures.",
             "No new fixed-50x futures strategy may use 1h or higher candles as its primary entry timeframe; use 3m/5m/15m for entry and 1h only for background confirmation.",
             "No strategy reaches dry-run review without manual approval after promotion gate.",
             "No Agent-created PR, comment, review, issue, push, release, or status-changing operation may target the official upstream freqtrade/freqtrade repository.",
             "BTC/ETH are the default core futures research pair universe; SOL/BNB/XRP require explicit pair-scope research_all or extension and never modify dry-run/live config by implication.",
             "High-liquidity futures expansion must exclude meme coins, low-liquidity altcoins, new listings, synthetic stock/commodity contracts, and unstable non-crypto derivatives.",
             "Promotion gate is family-level: evaluate target-regime edge plus hostile-regime loss containment under router, cooldown, drawdown, and consecutive stop-loss circuit breakers, not naked all-regime performance alone.",
+            "Finite CooldownPeriod, StoplossGuard, and MaxDrawdown evidence must come from an actual Freqtrade backtest with protections enabled; trade-list permanent-disable replay is a separate account-controller diagnostic and must never be labeled runtime PnL.",
             "Peak drawdown exits are family-specific and off by default. A1 may use validated peak40; E directional expansion must keep Peak off; other families require unchanged-entry A/B evidence and an explicit contract update before promotion.",
             "Live trading is outside this agent flow.",
             "Dry-run/live config files must not be modified by this consolidation layer.",
@@ -346,19 +363,29 @@ def build_payload() -> dict[str, Any]:
             "Load the data-derived regime manifest and regime inference quarantine before event-study planning, family-risk gates, promotion gates, or strategy generation.",
             "Aggregate confidence-qualified home validation episodes; do not select only the most profitable regime window.",
             "Use realistic cost as the primary edge screen and enforce explicit stress safety floors of -10% home total and -15% worst home episode.",
-            "Run the current market-state family router before factor research, event study, strategy generation, mature researcher queue execution, family-risk gates, or promotion gates; choose the next strategy family from the router output or default to no-trade.",
+            "Run the current market-state family router before deployment decisions and preserve no-trade as a valid output; never use that current-state result as the sole next-family research allocator.",
+            "The current market-state family router controls deployment permission only; the independent research-family allocator controls historical next-family research allocation.",
+            "Load the E1-E41 postmortem and independent research-family allocator before factor research, event study, strategy generation, or mature researcher queue execution.",
             "Do not treat legacy bull_home/range_home/bear_home/high_vol_hostile labels as market truth; old outputs are raw date-range backtests only until relabeled.",
             "Use the versioned pair universe: core BTC/ETH by default, SOL/BNB/XRP only when explicitly requested as extension or research_all scope.",
             "Do not treat high liquidity as sufficient for trading safety; excluded high-manipulation or unstable contract classes remain outside the research universe.",
             "Run factor research as the same Agent's front-door evidence layer before event-study planning or strategy synthesis.",
-            "Convert only factor rows with sufficient sample, after-fee expectancy, win rate, and MFE/MAE evidence into factor-to-strategy event hypotheses.",
+            "Use the allocator-selected historical home regime, family, and side for factor/event discovery; all-history scans are diagnostics only and cannot replace the current allocation report.",
+            "Use the typed feature registry across price action, regime, derivatives, microstructure, and cross-asset domains; missing auxiliary data stays unavailable and is never zero-filled.",
+            "Evaluate gross edge on de-clustered independent episodes before applying realistic fee/slippage costs, then require replication across independent data-derived regime windows.",
+            "Convert only factor rows that pass gross edge, realistic cost, and independent-window gates into explicit factor-event definitions before strategy hypotheses.",
             "Before generating a concrete strategy class, define a measurable event and run or read event-study evidence for samples, forward returns, win rate, and MFE/MAE.",
             "If factor research has no edge_candidate rows, do not generate another strategy class from theory; redesign factors, run negative controls, or improve data.",
             "If no event has verdict=edge_candidate, produce event redesigns, data-collection tasks, or negative-control studies instead of another strategy class.",
+            "Load the current research failure funnel before choosing the next experiment; classify blockers as gross_fail, cost_killed, validation_reversal, data_blocked, execution_incompatible, or gate_semantic_block.",
+            "Treat data_blocked and sample_or_causality as unavailable evidence, not failed edge. Suspend only after three consecutive edge-readable failures reuse the same family, mechanism, and data source.",
+            "Keep E1 and E33 frozen as retained research assets. Keep E23 and E32 waiting for genuinely new prospective evidence; do not rerun them unchanged.",
+            "Do not generate a neighboring filter from an unchanged blocker fingerprint. Continue prospective evidence collection without reading outcomes before its sample gate.",
             "After Freqtrade backtesting, run event-to-execution alignment when an event definition exists; do not treat pandas event-study edge as executable until actual trades, skipped signals, startup blocks, and overlap blocks are reconciled.",
             "After every backtest or strategy research round, run post-run attribution before updating research memory, mature researcher queues, or next experiments.",
             "Post-run attribution must separate signal edge, entry timing, exit quality, cost/funding drag, fixed 50x risk amplification, regime dependency, and sample validity.",
             "For promotion, evaluate every strategy family under regime-router and family/portfolio circuit breakers; do not require high-leverage crypto strategies to be all-regime holy grails.",
+            "Distinguish native finite Freqtrade protections from persistent account-level family disable. Native runtime evidence must be generated by Freqtrade, not inferred from a completed-trade replay.",
             "Do not apply one Peak giveback threshold globally. Read the family exit-risk contract before strategy synthesis, comparison, promotion, or dry-run risk preflight.",
             "A family may be a dry-run review candidate only when its target-regime edge survives and hostile-regime losses are contained by family-level drawdown, cooldown, and consecutive stop-loss guards.",
             "Treat official upstream freqtrade/freqtrade as read-only reference material only; never open PRs, comments, reviews, issues, pushes, releases, or status-changing operations there.",
@@ -381,7 +408,13 @@ def build_payload() -> dict[str, Any]:
             "pair_universe": "tools/strategy_research_agent/strategy_research/pair_universe.py",
             "current_market_router": "user_data/strategy_research/reports/latest_current_market_state_family_router.json",
             "factor_research": FACTOR_RESEARCH_POLICY["latest_factor_report"],
+            "factor_research_index": FACTOR_RESEARCH_POLICY["factor_report_index"],
+            "factor_candidate_event_study": FACTOR_RESEARCH_POLICY["latest_factor_candidate_event_report"],
+            "factor_feature_registry": "tools/strategy_research_agent/strategy_research/factor_feature_registry.py",
             "factor_strategy_plan": FACTOR_RESEARCH_POLICY["latest_factor_strategy_plan"],
+            "research_failure_funnel": rel(FAILURE_FUNNEL_JSON) if failure_funnel else None,
+            "research_program_postmortem": rel(PROGRAM_POSTMORTEM_JSON) if program_postmortem else None,
+            "research_family_allocator": rel(RESEARCH_ALLOCATOR_JSON) if research_allocator else None,
         },
         "observed_counts": {
             "active_knowledge_cards": graph_context.get("active_card_count", 0),
@@ -406,6 +439,9 @@ def build_operating_rules(payload: dict[str, Any]) -> dict[str, Any]:
             rel(MEMORY_JSON),
             rel(REGIME_WINDOWS_JSON),
             rel(REGIME_QUARANTINE_JSON),
+            rel(PROGRAM_POSTMORTEM_JSON),
+            rel(RESEARCH_ALLOCATOR_JSON),
+            rel(FAILURE_FUNNEL_JSON),
             rel(LATEST_JSON),
             rel(WORKFLOW_CONTRACT_MD),
             rel(WEEKLY_KNOWLEDGE_UPDATE_JSON),

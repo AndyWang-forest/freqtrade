@@ -34,3 +34,45 @@ def test_latest_family_gate_strategies_enter_lineage_as_research_evidence(monkey
     assert node["pool_status"] == "research_evidence"
     assert node["recommended_state"] == "research_candidate"
     assert gate["source_csv"] in node["evidence_paths"]
+
+
+def test_candidate_card_enriches_matching_family_gate_node(monkeypatch, tmp_path) -> None:
+    strategy = "C1BearEth15mPullbackResumeDispersionLowHourlyDowntrendShort"
+    gate_row = {
+        "strategy": strategy,
+        "strategy_family": "downtrend_pullback_short",
+        "state": "dryrun_candidate_review_pending_manual_approval",
+        "blocks": [],
+        "target_65d_guarded_pct": 33.3744,
+        "ready_for_manual_dryrun_review": True,
+    }
+    gate = {
+        "source_csv": "user_data/strategy_research/reports/c1_experiment.csv",
+        "risk_controls": {},
+    }
+    card_path = tmp_path / f"{strategy}.json"
+    card = {
+        "strategy": strategy,
+        "classification": "dryrun_candidate_review_pending_manual_approval",
+        "family": "downtrend_pullback_short",
+        "source": "c1_hourly_background_router",
+        "hypothesis": "Completed 1h background preserves the frozen 15m event.",
+        "recursive_analysis": "pass_at_startup_240",
+        "lookahead_analysis": "pass_40_signals_zero_bias",
+        "evidence": ["user_data/strategy_research/bias_checks/c1/lookahead.csv"],
+    }
+    monkeypatch.setattr(lineage, "current_registry", lambda: {"strategies": []})
+    monkeypatch.setattr(lineage, "load_family_gate", lambda: ({strategy: gate_row}, gate))
+    monkeypatch.setattr(lineage, "collect_pool_cards", lambda: [("candidate", card_path, card)])
+
+    payload = lineage.build_payload()
+
+    node = next(item for item in payload["nodes"] if item["name"] == strategy)
+    assert node["generation"] == "registered_family_gate_experiment"
+    assert node["pool_status"] == "candidate"
+    assert node["hypothesis"] == card["hypothesis"]
+    assert node["promotion"]["ready_for_manual_dryrun_review"] is True
+    assert node["candidate_card"]["recursive_analysis"] == "pass_at_startup_240"
+    assert node["candidate_card"]["lookahead_analysis"] == "pass_40_signals_zero_bias"
+    assert gate["source_csv"] in node["evidence_paths"]
+    assert card["evidence"][0] in node["evidence_paths"]

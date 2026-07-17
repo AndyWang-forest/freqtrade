@@ -15,9 +15,41 @@ The current improvement is to integrate those existing parts into one stronger r
 1. Read the knowledge graph to source professional trading ideas.
 2. Read research memory to understand repeated failures, avoid rules, and next blockers.
 3. Read the consolidation layer to enforce hard research boundaries and required validation gates.
-4. Convert knowledge-guided and memory-guided hypotheses into measurable event definitions.
-5. Run or read an event study before generating concrete strategy classes.
-6. Only events with forward-distribution evidence may pass into the existing self-iteration loop: isolated strategy generation, Freqtrade backtesting, event-to-execution alignment, post-run attribution, improvement planning, and promotion-gate review.
+4. Use the current market-state router only to determine present deployment permission, including a valid no-trade result.
+5. Rebuild the E1-E41 program postmortem, then use the independent research-family allocator to choose one under-covered family, historical home regime, and permitted side for research.
+6. Evaluate typed knowledge-derived features in price-action, regime, derivatives, microstructure, and cross-asset domains.
+7. Freeze factor thresholds on the earliest chronological home episode, then check de-clustered gross edge, realistic costs, and unchanged-threshold replication on later independent regime windows.
+8. Treat every gross-positive single-factor distribution as supporting evidence only. It may enter structural composition even if its isolated cost or replication gate fails, but it has no standalone authority; compose its frozen condition with a predeclared structural event for the allocated strategy family.
+9. Repeat gross, realistic-cost, and independent-window validation on the family-factor composite, then prove that every auxiliary input has a causal Freqtrade runtime path.
+10. Generate strategy code only when the hypothesis carries a `source_event_id` that matches the current validated family-factor composite plan. Knowledge, memory, or a single factor alone are not executable authority.
+11. Only composite events with forward-distribution and runtime-compatibility evidence may pass into the existing self-iteration loop: isolated strategy generation, Freqtrade backtesting, event-to-execution alignment, post-run attribution, improvement planning, and promotion-gate review.
+
+Before selecting the next experiment, the Agent must refresh the research
+failure funnel. The funnel classifies the current blocker as `gross_fail`,
+`cost_killed`, `validation_reversal`, `data_blocked`,
+`execution_incompatible`, or `gate_semantic_block`. A neighboring strategy
+filter may be generated only when a current validated factor event exists and
+the blocker fingerprint has changed. Otherwise the Agent must gather new
+causal evidence, continue preregistered data collection, or accept no-trade.
+
+All-history factor/event scans are diagnostics only. They are versioned by
+context and cannot overwrite the current allocator-targeted report pointer.
+
+## Reflection And Allocation Gate
+
+The deployment router and research allocator answer different questions. The
+router asks whether a registered family is permitted to trade in the current
+market. The allocator asks which missing family deserves the next evidence
+budget across historical, data-derived home regimes. A current no-trade result
+must never prevent research into an under-covered family, and a research
+allocation must never enable trading.
+
+Before allocating another experiment, the Agent must classify E1-E41 by family,
+evidence stage, mechanism, data source, and outcome. Three consecutive
+edge-readable failures using the same family, mechanism, and data source suspend
+adjacent variants in that lane. `data_blocked` and sample/causality blocks do
+not count as failed edge. E1 and E33 remain frozen research assets; E23 and E32
+wait for genuinely new prospective evidence and must not be rerun unchanged.
 
 ## Event Study Gate
 
@@ -29,6 +61,9 @@ Concrete strategy generation is not the first research step. The Agent must firs
 - MFE/MAE distribution;
 - pair, side, timeframe, and regime notes;
 - fee/slippage sensitivity before any candidate promotion.
+- gross expectancy before any cost deduction;
+- independent event count after overlapping forward horizons are de-clustered;
+- replication in at least two independent windows for the selected regime, including one validation episode that did not participate in threshold calibration;
 - realistic cost is the primary edge screen; stress cost is a safety check, not
   the primary edge score. Promotion still requires stress evidence, with home
   episode total no worse than `-10%` and worst episode no worse than `-15%`.
@@ -113,6 +148,9 @@ It must not run a dense Peak threshold grid.
 
 Every strategy research round that runs backtests must end with post-run attribution before it updates research memory, mature researcher queues, or the next experiment plan.
 
+Prospective E23/E32-style monitors may update coverage and collection receipts,
+but must keep outcomes unread until their preregistered sample gates pass.
+
 The attribution gate is part of the same Agent, not a separate Agent. It must reuse the same knowledge graph, research memory, event-study evidence, backtest outputs, exported trades, and promotion blockers. Splitting attribution into a separate Agent is not allowed unless the workflow still treats the result as the same mandatory gate.
 
 The gate must classify the result into explicit failure or edge buckets:
@@ -178,7 +216,7 @@ Do not describe the Agent as missing materials, knowledge, or self-iteration. Th
 
 The active research rule is:
 
-> Knowledge proposes events. Event studies test edge. Only edge candidates become strategies. Backtests must then be attributed before memory or next experiments change.
+> The current router controls deployment permission. The independent allocator selects the next under-covered research family and historical home regime. Knowledge proposes typed factors and events. Gross edge, realistic costs, and independent regime episodes test them. Only validated event candidates become strategy hypotheses. Backtests must then be attributed before memory or next experiments change.
 
 The knowledge graph is a multi-domain external brain. It must not collapse back
 to only trading-behavior or price-action notes. Normal research must load and
@@ -204,15 +242,20 @@ research memory directly into strategy classes.
 
 The fixed sequence is:
 
-1. Knowledge graph and research memory propose research directions.
-2. Factor research scores `3m`, `5m`, and `15m` Binance USDT-M futures OHLCV
+1. The E1-E41 postmortem and independent allocator select an eligible under-covered family and data-derived home regime.
+2. Knowledge graph and research memory propose typed mechanisms for that allocation.
+3. Factor research scores `3m`, `5m`, and `15m` Binance USDT-M futures OHLCV
    factors against forward return, MFE, MAE, sample count, side, and timeframe.
-3. Factor-to-strategy planning converts only factor rows with sufficient sample,
-   after-fee expectancy, win rate, and MFE/MAE evidence into event-study
-   hypotheses.
-4. Event study tests those hypotheses as measurable entry events.
-5. Only event edge candidates may become concrete Freqtrade strategy classes,
-   unless the run is explicitly labeled as a negative-control or redesign study.
+   Conditions are observed on the completed signal candle and executed at the
+   next candle open; the signal-candle close is not treated as a fill price.
+4. Passing factor rows remain supporting evidence and are combined with a
+   predeclared structural event for the allocated strategy family.
+5. The composite event repeats the sample, gross-edge, realistic-cost,
+   MFE/MAE, and independent-window gates with the factor threshold unchanged.
+6. Any auxiliary input must have a causal Freqtrade runtime data path.
+7. Only family-factor composite edge candidates may become concrete Freqtrade
+   strategy classes, unless the run is explicitly labeled as a negative-control
+   or redesign study.
 
 The Agent must not say "external knowledge generated this strategy" unless the
 factor/event evidence chain exists. External knowledge can inspire what to test;
@@ -221,7 +264,7 @@ it into a strategy hypothesis.
 
 ## Safety Boundary
 
-This workflow is research-only. It must not start live trading, read exchange API keys, modify dry-run/live config, or promote a theory-derived strategy without evidence gates. It must not create PRs, comments, reviews, issues, or pushes against the official upstream `freqtrade/freqtrade` repository; that repository is read-only reference material for this Agent.
+This workflow is research-only. It must not start live trading, read exchange API keys, modify dry-run/live config, or promote a theory-derived strategy without evidence gates. It must not create PRs, comments, reviews, issues, or pushes against the official upstream `freqtrade/freqtrade` repository; that repository is read-only reference material for this Agent. Every `gh` CLI write/status-changing operation must run through `safe_gh_write.py`, explicitly bind `GH_REPO` to `AndyWang-forest/freqtrade`, and avoid direct `gh api` writes. Git commits may be pushed only through the verified personal `origin`, while upstream push remains disabled.
 
 ## Futures Runtime Safety Gate
 

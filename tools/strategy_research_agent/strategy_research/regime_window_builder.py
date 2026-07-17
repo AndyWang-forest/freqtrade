@@ -13,6 +13,7 @@ import argparse
 import json
 import math
 import sys
+from bisect import bisect_left
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -23,9 +24,10 @@ import pandas as pd
 
 PAIRS = ["BTC_USDT_USDT", "ETH_USDT_USDT"]
 REGIME_LABELS = ["bull", "bear", "range", "high_vol"]
-MANIFEST_VERSION = 4
+MANIFEST_VERSION = 6
 MIN_WINDOW_DAYS = 45
 WINDOW_LENGTHS = [60, 75, 90]
+MIN_CONTIGUOUS_LABEL_DAYS = 30
 MIN_ACTIVE_LABEL_SHARE = 0.55
 MAX_EPISODES_PER_LABEL = 3
 # Validation episodes must be independent date slices.  Even a modest overlap
@@ -60,6 +62,8 @@ FAMILY_HOME_LABELS = {
     "range_lower_reversion_long": {"range"},
     "volatility_compression_directional_expansion": {"high_vol"},
 }
+
+WindowCandidate = tuple[float, pd.Timestamp, pd.Timestamp, float]
 
 
 @dataclass
@@ -247,6 +251,21 @@ def label_mask(window: pd.DataFrame, label: str) -> pd.Series:
     return window["daily_labels"].map(lambda labels: label in labels)
 
 
+def contiguous_label_segments(
+    data: pd.DataFrame,
+    label: str,
+    min_days: int = MIN_CONTIGUOUS_LABEL_DAYS,
+) -> list[tuple[pd.Timestamp, pd.Timestamp]]:
+    """Return independent causal episodes where the daily label stays active."""
+    mask = label_mask(data, label).fillna(False)
+    groups = mask.ne(mask.shift(fill_value=False)).cumsum()
+    segments: list[tuple[pd.Timestamp, pd.Timestamp]] = []
+    for _, segment in data.loc[mask].groupby(groups.loc[mask]):
+        if len(segment) >= min_days:
+            segments.append((segment.index[0], segment.index[-1]))
+    return segments
+
+
 def window_direction_matches_label(label: str, window: pd.DataFrame) -> bool:
     btc_return = float(window["btc_close"].iloc[-1] / window["btc_close"].iloc[0] - 1.0)
     eth_return = float(window["eth_close"].iloc[-1] / window["eth_close"].iloc[0] - 1.0)
@@ -326,6 +345,58 @@ def overlap_share(
     return overlap / max(min(left_days, right_days), 1)
 
 
+def select_independent_window_candidates(
+    candidates: list[WindowCandidate],
+    max_count: int,
+) -> list[WindowCandidate]:
+    """Select the largest independent episode set, then maximize evidence score."""
+    if not candidates or max_count <= 0:
+        return []
+
+    ordered = sorted(
+        candidates,
+        key=lambda item: (item[2], item[1], -item[0], -item[3]),
+    )
+    ends = [candidate[2] for candidate in ordered]
+    predecessors = [
+        bisect_left(ends, candidate[1], 0, index) - 1
+        for index, candidate in enumerate(ordered)
+    ]
+
+    # dp[i][count] stores the highest-score exact-count solution using the
+    # first i intervals. Exact cardinality lets the final selection prefer
+    # independent replication over one longer, higher-scoring interval.
+    dp: list[list[tuple[float, tuple[int, ...]] | None]] = [
+        [None] * (max_count + 1) for _ in range(len(ordered) + 1)
+    ]
+    for index in range(len(ordered) + 1):
+        dp[index][0] = (0.0, ())
+
+    for index, candidate in enumerate(ordered, start=1):
+        score = candidate[0]
+        predecessor_row = predecessors[index - 1] + 1
+        for count in range(1, max_count + 1):
+            best = dp[index - 1][count]
+            base = dp[predecessor_row][count - 1]
+            if base is not None:
+                take = (base[0] + score, base[1] + (index - 1,))
+                if best is None or take[0] > best[0] + 1e-12:
+                    best = take
+                elif (
+                    best is not None
+                    and abs(take[0] - best[0]) <= 1e-12
+                    and take[1] < best[1]
+                ):
+                    best = take
+            dp[index][count] = best
+
+    for count in range(max_count, -1, -1):
+        solution = dp[len(ordered)][count]
+        if solution is not None:
+            return [ordered[index] for index in solution[1]]
+    return []
+
+
 def select_windows(data: pd.DataFrame) -> list[dict[str, Any]]:
     clean = data.dropna(
         subset=[
@@ -339,7 +410,21 @@ def select_windows(data: pd.DataFrame) -> list[dict[str, Any]]:
     clean["daily_labels"] = clean.apply(labels_daily, axis=1)
     windows: list[dict[str, Any]] = []
     for label in REGIME_LABELS:
-        candidates: list[tuple[float, pd.Timestamp, pd.Timestamp]] = []
+        candidates: list[WindowCandidate] = []
+        candidate_methods: dict[tuple[pd.Timestamp, pd.Timestamp], str] = {}
+
+        # The daily label is the causal regime decision. Preserve uninterrupted
+        # runs as first-class episodes so a transition does not dilute 30 valid
+        # bear days inside an arbitrary 60-day context window.
+        for start, end in contiguous_label_segments(clean, label):
+            window = clean.loc[start:end]
+            if not window_direction_matches_label(label, window):
+                continue
+            candidates.append((score_window(label, window), start, end, 1.0))
+            candidate_methods[(start, end)] = "contiguous_daily_label_segment"
+
+        # Fixed 60/75/90-day windows remain useful context candidates and
+        # preserve compatibility with prior manifest evidence.
         for length in WINDOW_LENGTHS:
             if len(clean) < length:
                 continue
@@ -354,35 +439,57 @@ def select_windows(data: pd.DataFrame) -> list[dict[str, Any]]:
                     continue
                 start = window.index[0]
                 end = window.index[-1]
-                candidates.append((score_window(label, window), start, end))
+                candidates.append((score_window(label, window), start, end, share))
+                candidate_methods.setdefault((start, end), "fixed_context_window")
+
+        deduplicated: dict[tuple[pd.Timestamp, pd.Timestamp], WindowCandidate] = {}
+        for candidate in candidates:
+            key = (candidate[1], candidate[2])
+            existing = deduplicated.get(key)
+            if existing is None or candidate[0] > existing[0]:
+                deduplicated[key] = candidate
+        candidates = list(deduplicated.values())
         if not candidates:
             windows.append(
                 {
                     "label": label,
                     "name": f"{label}_data_insufficient",
                     "status": "data_insufficient",
-                    "reason": "No 60-90 day segment had enough indicator support for this label.",
+                    "reason": "No contiguous label episode or 60-90 day context window had enough indicator support for this label.",
                     "confidence": "none",
                     "evidence": {},
                 }
             )
             continue
 
-        selected: list[tuple[float, pd.Timestamp, pd.Timestamp]] = []
-        for candidate in sorted(candidates, key=lambda item: item[0], reverse=True):
-            _, start, end = candidate
-            if any(
-                overlap_share(start, end, selected_start, selected_end) > MAX_EPISODE_OVERLAP_SHARE
-                for _, selected_start, selected_end in selected
-            ):
-                continue
-            selected.append(candidate)
-            if len(selected) >= MAX_EPISODES_PER_LABEL:
-                break
+        active_candidates = [
+            candidate for candidate in candidates if candidate[3] >= MIN_ACTIVE_LABEL_SHARE
+        ]
+        selected_active = select_independent_window_candidates(
+            active_candidates,
+            MAX_EPISODES_PER_LABEL,
+        )
+        remaining_slots = MAX_EPISODES_PER_LABEL - len(selected_active)
+        candidate_only = [
+            candidate
+            for candidate in candidates
+            if candidate[3] < MIN_ACTIVE_LABEL_SHARE
+            and not any(
+                overlap_share(candidate[1], candidate[2], active[1], active[2])
+                > MAX_EPISODE_OVERLAP_SHARE
+                for active in selected_active
+            )
+        ]
+        selected_fallback = select_independent_window_candidates(candidate_only, remaining_slots)
+        selected = [
+            *sorted(selected_active, key=lambda item: (item[0], item[3]), reverse=True),
+            *sorted(selected_fallback, key=lambda item: (item[0], item[3]), reverse=True),
+        ]
 
         eligible_count = 0
-        for _, start, end in selected:
+        for _, start, end, _ in selected:
             row = summarize_window(label, clean, start, end)
+            row["selection_method"] = candidate_methods[(start, end)]
             label_share = float(row["evidence"]["label_share"])
             if label_share < MIN_ACTIVE_LABEL_SHARE:
                 row["status"] = "insufficient_confidence"
@@ -533,8 +640,13 @@ def build_payload() -> dict[str, Any]:
             "missing_labels": sorted(set(REGIME_LABELS) - active_labels),
             "legacy_hardcoded_windows_allowed": False,
             "minimum_active_label_share": MIN_ACTIVE_LABEL_SHARE,
+            "minimum_contiguous_label_days": MIN_CONTIGUOUS_LABEL_DAYS,
+            "context_window_lengths_days": WINDOW_LENGTHS,
             "max_episodes_per_label": MAX_EPISODES_PER_LABEL,
             "max_episode_overlap_share": MAX_EPISODE_OVERLAP_SHARE,
+            "window_selection_objective": (
+                "maximize_active_non_overlapping_episode_count_then_total_evidence_score"
+            ),
         },
     }
     return payload
@@ -556,17 +668,18 @@ def write_manifest_markdown(path: Path, payload: dict[str, Any]) -> None:
         "",
         "## Windows",
         "",
-        "| Label | Name | Status | Episode | Timerange | Days | Confidence | BTC Ret % | ETH Ret % | Vol Pctile | Trend Eff | Label Share |",
-        "|---|---|---|---|---|---:|---|---:|---:|---:|---:|---:|",
+        "| Label | Name | Status | Episode | Method | Timerange | Days | Confidence | BTC Ret % | ETH Ret % | Vol Pctile | Trend Eff | Label Share |",
+        "|---|---|---|---|---|---|---:|---|---:|---:|---:|---:|---:|",
     ]
     for item in payload["windows"]:
         ev = item.get("evidence", {})
         lines.append(
-            "| {label} | `{name}` | `{status}` | `{episode}` | `{timerange}` | {days} | {confidence} | {btc} | {eth} | {vol} | {trend} | {share} |".format(
+            "| {label} | `{name}` | `{status}` | `{episode}` | `{method}` | `{timerange}` | {days} | {confidence} | {btc} | {eth} | {vol} | {trend} | {share} |".format(
                 label=item.get("label", ""),
                 name=item.get("name", ""),
                 status=item.get("status", ""),
                 episode=item.get("episode_role", ""),
+                method=item.get("selection_method", ""),
                 timerange=item.get("timerange") or item.get("status", ""),
                 days=item.get("days", 0),
                 confidence=item.get("confidence", ""),

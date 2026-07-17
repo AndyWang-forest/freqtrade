@@ -61,6 +61,49 @@ def test_high_vol_is_an_overlay_on_bear_direction() -> None:
     assert builder.labels_daily(row) == ("bear", "high_vol")
 
 
+def test_contiguous_daily_label_segment_preserves_transition_episode() -> None:
+    dates = pd.date_range("2026-01-01", periods=60, freq="1D", tz="UTC")
+    labels = [("mixed",)] * 30 + [("bear", "high_vol")] * 30
+    frame = pd.DataFrame({"daily_labels": labels}, index=dates)
+
+    assert builder.contiguous_label_segments(frame, "bear") == [
+        (dates[30], dates[59])
+    ]
+    assert builder.contiguous_label_segments(frame, "high_vol") == [
+        (dates[30], dates[59])
+    ]
+
+
+def test_select_windows_activates_30_day_contiguous_bear_episode() -> None:
+    dates = pd.date_range("2026-01-01", periods=60, freq="1D", tz="UTC")
+    first = 30
+    frame = pd.DataFrame(index=dates)
+    frame["btc_close"] = pd.Series(range(100, 40, -1), index=dates, dtype=float)
+    frame["eth_close"] = pd.Series(range(120, 60, -1), index=dates, dtype=float)
+    frame["combined_ret_30d"] = [-0.10] * first + [-0.18] * 30
+    frame["combined_ret_60d"] = [-0.10] * first + [-0.20] * 30
+    frame["btc_ret_60d"] = [-0.10] * first + [-0.21] * 30
+    frame["eth_ret_60d"] = [-0.10] * first + [-0.19] * 30
+    frame["combined_ema_gap"] = [-0.02] * first + [-0.05] * 30
+    frame["combined_vol_pctile"] = [0.30] * first + [0.90] * 30
+    frame["combined_atr_pctile"] = [0.30] * first + [0.70] * 30
+    frame["combined_bb_width_pctile"] = 0.50
+    frame["combined_trend_efficiency"] = [0.10] * first + [0.30] * 30
+    frame["direction_agreement_60d"] = 1.0
+
+    bear_windows = [
+        item for item in builder.select_windows(frame) if item["label"] == "bear"
+    ]
+
+    assert any(
+        item["status"] == "active"
+        and item["days"] == 30
+        and item["evidence"]["label_share"] == 1.0
+        and item["selection_method"] == "contiguous_daily_label_segment"
+        for item in bear_windows
+    )
+
+
 def test_rolling_percentile_does_not_use_future_observations() -> None:
     baseline = pd.Series(range(1, 401), dtype=float)
     changed_future = baseline.copy()
@@ -160,6 +203,56 @@ def test_same_label_validation_episodes_do_not_overlap() -> None:
     roles = builder.family_window_roles(windows)["uptrend_pullback_long"]
 
     assert roles["home"] == ["bull_primary", "bull_independent"]
+
+
+def test_window_selector_prefers_two_independent_active_episodes_over_one_long_window() -> None:
+    long_window = (
+        100.0,
+        pd.Timestamp("2023-01-01", tz="UTC"),
+        pd.Timestamp("2023-01-10", tz="UTC"),
+        0.90,
+    )
+    left_window = (
+        20.0,
+        pd.Timestamp("2023-01-01", tz="UTC"),
+        pd.Timestamp("2023-01-05", tz="UTC"),
+        0.60,
+    )
+    right_window = (
+        20.0,
+        pd.Timestamp("2023-01-06", tz="UTC"),
+        pd.Timestamp("2023-01-10", tz="UTC"),
+        0.60,
+    )
+
+    selected = builder.select_independent_window_candidates(
+        [long_window, left_window, right_window],
+        max_count=2,
+    )
+
+    assert selected == [left_window, right_window]
+
+
+def test_window_selector_uses_best_evidence_when_cardinality_is_equal() -> None:
+    stronger = (
+        100.0,
+        pd.Timestamp("2023-01-01", tz="UTC"),
+        pd.Timestamp("2023-01-10", tz="UTC"),
+        0.90,
+    )
+    weaker = (
+        20.0,
+        pd.Timestamp("2023-01-01", tz="UTC"),
+        pd.Timestamp("2023-01-05", tz="UTC"),
+        0.60,
+    )
+
+    selected = builder.select_independent_window_candidates(
+        [weaker, stronger],
+        max_count=1,
+    )
+
+    assert selected == [stronger]
 
 
 def test_regime_entry_mask_requires_forward_horizon_inside_window() -> None:

@@ -70,46 +70,50 @@ def slug(value: str) -> str:
 
 
 def risk_template(blocker: str) -> dict[str, Any]:
+    fixed_leverage = {
+        "leverage_change": "none_fixed_50x",
+        "leverage_cap": 50.0,
+    }
     if blocker in {"bias_checks_missing", "lookahead_or_recursive_unverified"}:
         return {
             "risk_change": "do_not_change_logic_until_bias_checks_pass",
             "entry_change": "hold current candidate logic; prioritize recursive/lookahead verification",
             "exit_change": "none",
-            "leverage_cap": 3.0,
+            **fixed_leverage,
         }
     if blocker in {"matrix_not_robust", "fragile_matrix", "matrix_not_tested"}:
         return {
             "risk_change": "split by market regime and reject one-slice winners",
             "entry_change": "add regime-specific confirmation and disable hostile regime entries",
             "exit_change": "exit faster when regime flips against the trade",
-            "leverage_cap": 3.0,
+            **fixed_leverage,
         }
     if blocker in {"too_few_trades", "too_few_matrix_trades", "insufficient_sample"}:
         return {
             "risk_change": "preserve sample size before tightening filters",
             "entry_change": "replace hard filters with scored confirmation and minimum signal quality",
             "exit_change": "keep exits simple so entry changes are isolated",
-            "leverage_cap": 2.0,
+            **fixed_leverage,
         }
     if blocker in {"negative_after_cost", "cost_evidence_missing", "cost_not_estimated", "stress_cost_failure"}:
         return {
             "risk_change": "reduce churn and require larger expected move than fee/slippage/funding",
             "entry_change": "require volatility-adjusted edge before entry",
             "exit_change": "avoid tiny ROI exits that cannot survive stress costs",
-            "leverage_cap": 2.0,
+            **fixed_leverage,
         }
     if blocker in {"loss_exit_quality", "weak_profit_factor", "negative_or_missing_return"}:
         return {
             "risk_change": "tighten invalidation and add cooldown after loss clusters",
             "entry_change": "require pullback plus resume confirmation instead of immediate signal entry",
             "exit_change": "cut trades when MFE fails to develop quickly",
-            "leverage_cap": 2.0,
+            **fixed_leverage,
         }
     return {
-        "risk_change": "isolate one blocker and keep leverage conservative",
+        "risk_change": "isolate one blocker without changing the fixed 50x leverage contract",
         "entry_change": "use explicit confirmation instead of raw directional signal",
         "exit_change": "record exit reason and compare payoff before/after",
-        "leverage_cap": 2.0,
+        **fixed_leverage,
     }
 
 
@@ -251,7 +255,7 @@ def build_hypotheses(memory: dict[str, Any], lineage: dict[str, Any], graph_cont
                 "proposed_changes": template,
                 "success_gate": focus.get("success_gate") or success_gate(blocker),
                 "next_command": focus.get("next_command") or "user_data/strategy_research/start_manual_research.sh --memory-guided-strategies",
-                "risk_notes": "Research-only plan. Strategy family and regime contract are mandatory before code generation. Do not raise leverage or promote without passing scorecard, matrix, walk-forward, cost, and bias gates.",
+                "risk_notes": "Research-only plan. Strategy family and regime contract are mandatory before code generation. Leverage stays fixed at 50x; promotion still requires scorecard, matrix, walk-forward, cost, and bias gates.",
             }
         )
     return hypotheses[:8]
@@ -312,7 +316,6 @@ def write_markdown(path: Path, payload: dict[str, Any]) -> None:
         "|---|---|---|---|---|---|---|---|---|",
     ]
     for item in payload["hypotheses"]:
-        changes = item["proposed_changes"]
         lines.append(
             "| {hypothesis_id} | {strategy_family} | {strategy_family_direction} | {strategy} | {blocker} | {allowed} | {disabled} | {objective} | {success_gate} |".format(
                 allowed=", ".join(item["regime_contract"]["allowed_regimes"]),

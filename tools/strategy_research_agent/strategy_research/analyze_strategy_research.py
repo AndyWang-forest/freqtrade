@@ -19,15 +19,23 @@ REPORT_DIR = AGENT_ROOT / "strategy_assessments"
 POOL_DIRS = [
     AGENT_ROOT / "candidates",
     AGENT_ROOT / "watchlist",
-    AGENT_ROOT / "rejected",
 ]
+REGISTRY_JSON = AGENT_ROOT / "strategy_registry.json"
+REJECTED_DIR = AGENT_ROOT / "rejected"
+PROMOTION_JSON = AGENT_ROOT / "promotion_reports/latest_promotion_report.json"
 
 
 @dataclass
 class Scorecard:
     strategy: str
+    evidence_scope: str
+    source_pool: str | None
+    source_path: str | None
+    evidence_artifacts: list[str]
+    active_state: str | None
+    gate_blockers: list[str]
     tier: str
-    score: int
+    score: int | None
     base_return_pct: float | None
     adjusted_return_pct: float | None
     market_change_pct: float | None
@@ -80,6 +88,22 @@ def load_pool_metrics() -> dict[str, dict[str, Any]]:
             current.update(item)
             current["pool"] = directory.name
             current["pool_path"] = rel_path(path)
+    return metrics
+
+
+def load_registry_metrics() -> dict[str, dict[str, Any]]:
+    registry = load_json(REGISTRY_JSON) or {}
+    metrics: dict[str, dict[str, Any]] = {}
+    for item in registry.get("strategies", []):
+        strategy = item.get("name") or item.get("strategy")
+        if not strategy:
+            continue
+        metrics[strategy] = {
+            **item,
+            "strategy": strategy,
+            "pool": "registry",
+            "pool_path": rel_path(REGISTRY_JSON),
+        }
     return metrics
 
 
@@ -149,6 +173,49 @@ def score_strategy(
     matrix: dict[str, Any] | None,
     costs: dict[str, Any] | None,
 ) -> Scorecard:
+    evidence_artifacts = []
+    evidence = base.get("evidence")
+    if isinstance(evidence, dict):
+        for value in evidence.values():
+            if isinstance(value, str):
+                evidence_artifacts.append(value)
+            elif isinstance(value, list):
+                evidence_artifacts.extend(str(item) for item in value if isinstance(item, str))
+    elif isinstance(evidence, list):
+        evidence_artifacts.extend(str(item) for item in evidence)
+
+    quantitative_keys = {
+        "total_profit_pct",
+        "profit_factor",
+        "max_drawdown_pct",
+        "trades",
+        "market_change_pct",
+    }
+    if not any(base.get(key) is not None for key in quantitative_keys):
+        return Scorecard(
+            strategy=strategy,
+            evidence_scope="active_registry_candidate_watchlist",
+            source_pool=base.get("pool"),
+            source_path=base.get("pool_path"),
+            evidence_artifacts=evidence_artifacts,
+            active_state=base.get("promotion_state") or base.get("classification") or base.get("state"),
+            gate_blockers=list(base.get("promotion_blockers") or []),
+            tier="registered_evidence_reference",
+            score=None,
+            base_return_pct=None,
+            adjusted_return_pct=None,
+            market_change_pct=None,
+            profit_factor=None,
+            max_drawdown_pct=None,
+            trades=None,
+            matrix_verdict=None,
+            positive_matrix_runs=None,
+            stress_negative_runs=None,
+            too_few_trade_runs=None,
+            primary_failures=["quantitative_evidence_not_materialized_in_registry"],
+            next_actions=["Read the strategy's exact registered evidence artifacts before rescoring; do not infer zero performance from a registry pointer."],
+        )
+
     failures: list[str] = []
     score = 0
 
@@ -218,9 +285,26 @@ def score_strategy(
         "lookahead_or_recursive_unverified",
     )
 
+    computed_tier = tier(score, failures)
+    active_state = base.get("promotion_state") or base.get("classification") or base.get("state")
+    if base.get("pool") == "candidates":
+        computed_tier = str(active_state or "research_candidate")
+    elif base.get("pool") == "watchlist":
+        computed_tier = "watchlist"
+    gate_blockers = list(base.get("promotion_blockers") or [])
+    next_actions = next_actions_for(failures)
+    if gate_blockers:
+        next_actions = ["Resolve the exact current promotion blocker: " + blocker for blocker in gate_blockers[:4]]
+
     return Scorecard(
         strategy=strategy,
-        tier=tier(score, failures),
+        evidence_scope="active_registry_candidate_watchlist",
+        source_pool=base.get("pool"),
+        source_path=base.get("pool_path"),
+        evidence_artifacts=evidence_artifacts,
+        active_state=active_state,
+        gate_blockers=gate_blockers,
+        tier=computed_tier,
         score=score,
         base_return_pct=base_return,
         adjusted_return_pct=adjusted_return,
@@ -233,23 +317,39 @@ def score_strategy(
         stress_negative_runs=stress_negative,
         too_few_trade_runs=too_few,
         primary_failures=failures,
-        next_actions=next_actions_for(failures),
+        next_actions=next_actions,
     )
 
 
 def build_payload() -> dict[str, Any]:
     latest_report = load_json(latest_report_path()) if latest_report_path() else {}
-    pool_metrics = load_pool_metrics()
+    pool_metrics = load_registry_metrics()
+    for strategy, item in load_pool_metrics().items():
+        pool_metrics.setdefault(strategy, {}).update(item)
     matrix_payload = load_json(AGENT_ROOT / "matrix_summaries/latest_matrix_summary.json") or {}
     cost_payload = load_json(AGENT_ROOT / "cost_adjustments/latest_trade_cost_estimate.json") or {}
+    promotion_payload = load_json(PROMOTION_JSON) or {}
 
     matrix_by_strategy = index_by_strategy(matrix_payload.get("strategy_summary", []))
     costs_by_strategy = index_by_strategy(cost_payload.get("estimates", []))
+    promotion_by_strategy = index_by_strategy(promotion_payload.get("verdicts", []))
 
-    for item in latest_report.get("candidate_pool", []) + latest_report.get("watchlist_pool", []) + latest_report.get("rejected_pool", []):
+    active_names = set(pool_metrics)
+    for item in latest_report.get("candidate_pool", []) + latest_report.get("watchlist_pool", []):
         strategy = item.get("strategy") or item.get("name")
-        if strategy:
+        if strategy and strategy in active_names:
             pool_metrics.setdefault(strategy, {}).update(item)
+
+    for item in latest_report.get("results", []):
+        strategy = item.get("strategy") or item.get("name")
+        if strategy and strategy in active_names:
+            pool_metrics[strategy].update(item)
+
+    for strategy, item in promotion_by_strategy.items():
+        if strategy not in active_names:
+            continue
+        pool_metrics[strategy]["promotion_state"] = item.get("state") or item.get("verdict")
+        pool_metrics[strategy]["promotion_blockers"] = item.get("blockers", [])
 
     scorecards = [
         asdict(score_strategy(strategy, base, matrix_by_strategy.get(strategy), costs_by_strategy.get(strategy)))
@@ -289,6 +389,12 @@ def build_payload() -> dict[str, Any]:
     return {
         "generated_at_utc": datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ"),
         "market_profile": "crypto / Binance USDT-M futures / BTC-ETH only",
+        "assessment_scope": {
+            "active_sources": ["strategy_registry", "candidates", "watchlist"],
+            "rejected_archive_excluded_from_scoring": True,
+            "rejected_archive_count": len(list(REJECTED_DIR.glob("*.json"))),
+            "matrix_and_cost_join": "exact_strategy_name_only",
+        },
         "score_definition": {
             "max_score": 100,
             "dimensions": [
@@ -304,16 +410,24 @@ def build_payload() -> dict[str, Any]:
                 "bias-analysis verification",
             ],
         },
-        "scorecards": sorted(scorecards, key=lambda item: (-item["score"], item["strategy"])),
+        "scorecards": sorted(
+            scorecards,
+            key=lambda item: (
+                -(item["score"] if item["score"] is not None else -1),
+                item["strategy"],
+            ),
+        ),
         "failure_summary": [
             {"failure": failure, "count": count}
             for failure, count in failure_counts.most_common()
         ],
         "diagnostics": diagnostics_by_strategy,
         "source_artifacts": {
+            "strategy_registry": rel_path(REGISTRY_JSON),
             "latest_report": rel_path(latest_report_path()) if latest_report_path() else None,
             "matrix_summary": rel_path(AGENT_ROOT / "matrix_summaries/latest_matrix_summary.json"),
             "trade_cost_estimate": rel_path(AGENT_ROOT / "cost_adjustments/latest_trade_cost_estimate.json"),
+            "promotion_report": rel_path(PROMOTION_JSON),
         },
     }
 

@@ -15,7 +15,7 @@ PYTHON="${PYTHON:-./.venv/bin/python}"
 
 usage() {
   cat <<'EOF'
-Usage: user_data/strategy_research/start_manual_research.sh [--quick|--source-scout|--price-action-knowledge|--bilibili-transcripts|--knowledge-graph|--knowledge-guided-hypotheses|--factor-research|--factor-to-strategy|--event-study|--chan-event-study|--event-execution-alignment|--regime-windows|--current-market-router|--agent-brain|--weekly-knowledge-update|--walk-forward|--promotion-gate|--family-risk-gate|--a1-external-permission|--dryrun-risk-preflight|--trade-behavior|--failure-attribution|--post-run-attribution|--mature-researcher|--mature-researcher-queue|--execute-mature-researcher|--strategy-lineage|--research-memory|--memory-guided-hypotheses|--memory-guided-strategies|--preflight-only] [--extra-agent-arg ARG ...]
+Usage: user_data/strategy_research/start_manual_research.sh [--quick|--source-scout|--price-action-knowledge|--bilibili-transcripts|--knowledge-graph|--knowledge-guided-hypotheses|--factor-research|--factor-to-strategy|--research-postmortem|--research-allocator|--failure-funnel|--event-study|--chan-event-study|--event-execution-alignment|--regime-windows|--current-market-router|--agent-brain|--weekly-knowledge-update|--walk-forward|--promotion-gate|--family-risk-gate|--a1-external-permission|--dryrun-risk-preflight|--trade-behavior|--failure-attribution|--post-run-attribution|--mature-researcher|--mature-researcher-queue|--execute-mature-researcher|--strategy-lineage|--research-memory|--memory-guided-hypotheses|--memory-guided-strategies|--preflight-only] [--extra-agent-arg ARG ...]
 
 Manual entrypoint for the research-only strategy agent.
 
@@ -30,9 +30,14 @@ Modes:
                      Build the graph-structured price-action knowledge layer.
   --knowledge-guided-hypotheses
                      Build the curated price-action knowledge layer and plan hypotheses guarded by research memory.
-  --factor-research  Mine 3m/5m/15m futures OHLCV factors before event study or strategy generation.
+  --factor-research  Mine allocator-targeted 3m/5m/15m multi-domain futures factors, then validate factor events.
   --factor-to-strategy
-                     Convert factor edge candidates into guarded event-study hypotheses; does not generate strategy classes directly.
+                     Convert validated factor events into guarded strategy hypotheses; does not generate strategy classes directly.
+  --research-postmortem
+                     Rebuild the E1-E41 family/stage/failure postmortem without running a new experiment.
+  --research-allocator
+                     Refresh the independent next-family research allocation; never enables trading or synthesis.
+  --failure-funnel   Classify the current research blocker and decide whether adjacent variant generation is allowed.
   --event-study      Test measurable entry events before strategy generation.
   --chan-event-study Test causal 15m Chan third-point events against a Donchian retest baseline; keeps Chan cards quarantined.
   --event-execution-alignment
@@ -117,6 +122,18 @@ while [[ $# -gt 0 ]]; do
       ;;
     --factor-to-strategy)
       mode="factor_to_strategy"
+      shift
+      ;;
+    --research-postmortem)
+      mode="research_postmortem"
+      shift
+      ;;
+    --research-allocator)
+      mode="research_allocator"
+      shift
+      ;;
+    --failure-funnel)
+      mode="failure_funnel"
       shift
       ;;
     --event-study)
@@ -240,22 +257,22 @@ done
 pair_scope_for_preflight="$agent_pair_scope"
 pair_scope_args=(--pair-scope "$agent_pair_scope")
 
-echo "== Strategy Research Agent: preflight =="
-preflight_args=(--pair-scope "$pair_scope_for_preflight")
-if [[ "$mode" == "regime_windows" ]]; then
-  preflight_args+=(--allow-regime-rebuild)
-fi
-"$PYTHON" user_data/strategy_research/preflight_research_agent.py "${preflight_args[@]}"
+run_preflight() {
+  local preflight_args=(--pair-scope "$pair_scope_for_preflight")
+  if [[ "$mode" == "regime_windows" ]]; then
+    preflight_args+=(--allow-regime-rebuild --allow-research-reflection-rebuild)
+  fi
+  echo "== Strategy Research Agent: preflight =="
+  "$PYTHON" user_data/strategy_research/preflight_research_agent.py "${preflight_args[@]}"
+}
 
-if [[ "$mode" == "agent_brain" ]]; then
-  echo "== Strategy Research Agent: bootstrap external brain graph =="
-  "$PYTHON" user_data/strategy_research/build_price_action_knowledge_base.py
-  "$PYTHON" user_data/strategy_research/build_price_action_knowledge_layer.py
-  "$PYTHON" user_data/strategy_research/build_price_action_knowledge_graph.py
-  "$PYTHON" user_data/strategy_research/build_research_consolidation.py
+if [[ "$mode" == "preflight_only" ]]; then
+  run_preflight
+  exit 0
 fi
 
 if [[ "$mode" == "regime_windows" ]]; then
+  run_preflight
   echo "== Strategy Research Agent: data-derived regime windows =="
   "$PYTHON" user_data/strategy_research/regime_window_builder.py
   echo "== Strategy Research Agent: refresh consolidation rules =="
@@ -265,20 +282,61 @@ if [[ "$mode" == "regime_windows" ]]; then
   exit 0
 fi
 
+if [[ ! -f user_data/strategy_research/regime_windows/latest_regime_windows.json ]]; then
+  echo "ERROR: data-derived regime manifest is missing; run --regime-windows first." >&2
+  run_preflight
+  exit 1
+fi
+
+if [[ ! -f user_data/strategy_research/postmortems/latest_research_program_postmortem.json ]]; then
+  echo "== Strategy Research Agent: bootstrap E1-E41 research postmortem =="
+  "$PYTHON" user_data/strategy_research/research_program_postmortem.py
+fi
+
+if [[ ! -f user_data/strategy_research/research_allocation/latest_research_family_allocator.json ]]; then
+  echo "== Strategy Research Agent: bootstrap independent research allocator =="
+  "$PYTHON" user_data/strategy_research/research_family_allocator.py
+fi
+
+if [[ ! -f user_data/strategy_research/failure_funnel/latest_research_failure_funnel.json ]]; then
+  echo "== Strategy Research Agent: bootstrap research failure funnel =="
+  "$PYTHON" user_data/strategy_research/research_failure_funnel.py
+fi
+
+run_preflight
+
+if [[ "$mode" == "agent_brain" ]]; then
+  echo "== Strategy Research Agent: bootstrap external brain graph =="
+  "$PYTHON" user_data/strategy_research/build_price_action_knowledge_base.py
+  "$PYTHON" user_data/strategy_research/build_price_action_knowledge_layer.py
+  "$PYTHON" user_data/strategy_research/build_price_action_knowledge_graph.py
+  "$PYTHON" user_data/strategy_research/build_research_consolidation.py
+fi
+
 echo "== Strategy Research Agent: fixed workflow gate =="
 "$PYTHON" user_data/strategy_research/enforce_agent_workflow_gate.py
-
-if [[ "$mode" == "preflight_only" ]]; then
-  exit 0
-fi
 
 run_current_market_router() {
   echo "== Strategy Research Agent: current market-state family router =="
   "$PYTHON" user_data/strategy_research/current_market_state_family_router.py
+  run_research_reflection
+  echo "== Strategy Research Agent: allocation-aligned research failure funnel =="
+  "$PYTHON" user_data/strategy_research/research_failure_funnel.py
+}
+
+run_research_postmortem() {
+  echo "== Strategy Research Agent: E1-E41 research program postmortem =="
+  "$PYTHON" user_data/strategy_research/research_program_postmortem.py
+}
+
+run_research_reflection() {
+  run_research_postmortem
+  echo "== Strategy Research Agent: independent research-family allocator =="
+  "$PYTHON" user_data/strategy_research/research_family_allocator.py
 }
 
 case "$mode" in
-  current_market_router|agent_brain|factor_research|factor_to_strategy|event_study|event_execution_alignment|walk_forward|promotion_gate|family_risk_gate|a1_external_permission|post_run_attribution|mature_researcher|mature_researcher_queue|execute_mature_researcher|memory_guided_hypotheses|memory_guided_strategies)
+  current_market_router|research_allocator|agent_brain|factor_research|factor_to_strategy|failure_funnel|event_study|event_execution_alignment|walk_forward|promotion_gate|family_risk_gate|a1_external_permission|post_run_attribution|mature_researcher|mature_researcher_queue|execute_mature_researcher|memory_guided_hypotheses|memory_guided_strategies)
     run_current_market_router
     ;;
 esac
@@ -299,7 +357,11 @@ run_agent_brain() {
   "$PYTHON" user_data/strategy_research/build_price_action_knowledge_graph.py
   run_optional_script user_data/strategy_research/build_strategy_lineage.py
   "$PYTHON" user_data/strategy_research/build_research_memory.py
-  "$PYTHON" user_data/strategy_research/factor_research.py "${pair_scope_args[@]}"
+  "$PYTHON" user_data/strategy_research/factor_research.py --auto-target "${pair_scope_args[@]}"
+  "$PYTHON" user_data/strategy_research/run_factor_candidate_event_study.py
+  "$PYTHON" user_data/strategy_research/research_failure_funnel.py
+  run_research_reflection
+  "$PYTHON" user_data/strategy_research/build_research_memory.py
   "$PYTHON" user_data/strategy_research/factor_to_strategy_plan.py
   "$PYTHON" user_data/strategy_research/plan_knowledge_guided_hypotheses.py
   "$PYTHON" user_data/strategy_research/plan_memory_guided_hypotheses.py
@@ -324,8 +386,10 @@ run_post_run_attribution() {
     fi
   fi
   "$PYTHON" user_data/strategy_research/attribute_strategy_failures.py
+  "$PYTHON" user_data/strategy_research/research_failure_funnel.py
   "$PYTHON" user_data/strategy_research/mature_researcher.py
   "$PYTHON" user_data/strategy_research/mature_researcher_queue.py
+  run_research_reflection
   "$PYTHON" user_data/strategy_research/build_research_memory.py
   "$PYTHON" user_data/strategy_research/build_research_consolidation.py
 }
@@ -333,6 +397,7 @@ run_post_run_attribution() {
 run_promotion_experience_update() {
   echo "== Strategy Research Agent: promotion experience update =="
   run_optional_script user_data/strategy_research/build_strategy_lineage.py
+  run_research_reflection
   "$PYTHON" user_data/strategy_research/build_research_memory.py
   "$PYTHON" user_data/strategy_research/build_research_consolidation.py
 }
@@ -394,7 +459,11 @@ case "$mode" in
     "$PYTHON" user_data/strategy_research/build_price_action_knowledge_layer.py
     "$PYTHON" user_data/strategy_research/build_price_action_knowledge_graph.py
     "$PYTHON" user_data/strategy_research/build_research_memory.py
-    "$PYTHON" user_data/strategy_research/factor_research.py ${extra_args[@]+"${extra_args[@]}"}
+    "$PYTHON" user_data/strategy_research/factor_research.py --auto-target ${extra_args[@]+"${extra_args[@]}"}
+    "$PYTHON" user_data/strategy_research/run_factor_candidate_event_study.py
+    "$PYTHON" user_data/strategy_research/research_failure_funnel.py
+    "$PYTHON" user_data/strategy_research/build_research_memory.py
+    "$PYTHON" user_data/strategy_research/factor_to_strategy_plan.py
     "$PYTHON" user_data/strategy_research/build_research_consolidation.py
     refresh_dashboard_if_available
     ;;
@@ -403,15 +472,29 @@ case "$mode" in
     "$PYTHON" user_data/strategy_research/build_price_action_knowledge_layer.py
     "$PYTHON" user_data/strategy_research/build_price_action_knowledge_graph.py
     "$PYTHON" user_data/strategy_research/build_research_memory.py
-    "$PYTHON" user_data/strategy_research/factor_research.py ${extra_args[@]+"${extra_args[@]}"}
+    "$PYTHON" user_data/strategy_research/factor_research.py --auto-target ${extra_args[@]+"${extra_args[@]}"}
+    "$PYTHON" user_data/strategy_research/run_factor_candidate_event_study.py
+    "$PYTHON" user_data/strategy_research/research_failure_funnel.py
+    "$PYTHON" user_data/strategy_research/build_research_memory.py
     "$PYTHON" user_data/strategy_research/factor_to_strategy_plan.py
     "$PYTHON" user_data/strategy_research/build_research_consolidation.py
     refresh_dashboard_if_available
     ;;
+  research_postmortem)
+    run_research_postmortem
+    ;;
+  research_allocator)
+    ;;
+  failure_funnel)
+    echo "== Strategy Research Agent: current research failure funnel =="
+    "$PYTHON" user_data/strategy_research/research_failure_funnel.py
+    "$PYTHON" user_data/strategy_research/build_research_memory.py
+    "$PYTHON" user_data/strategy_research/build_research_consolidation.py
+    ;;
   event_study)
     echo "== Strategy Research Agent: event study edge check =="
     "$PYTHON" user_data/strategy_research/regime_window_builder.py --check-only
-    "$PYTHON" user_data/strategy_research/run_event_study.py ${extra_args[@]+"${extra_args[@]}"}
+    "$PYTHON" user_data/strategy_research/run_event_study.py --auto-target ${extra_args[@]+"${extra_args[@]}"}
     "$PYTHON" user_data/strategy_research/run_research_agent.py --skip-backtests
     ;;
   chan_event_study)
@@ -575,6 +658,9 @@ Lineage:    user_data/strategy_research/strategy_library/latest_strategy_lineage
 Memory:     user_data/strategy_research/research_memory/latest_research_memory.md
 Factors:    user_data/strategy_research/factors/latest_factor_research.md
 FactorPlan: user_data/strategy_research/factors/latest_factor_strategy_plan.md
+FailFunnel:user_data/strategy_research/failure_funnel/latest_research_failure_funnel.md
+Postmortem:user_data/strategy_research/postmortems/latest_research_program_postmortem.md
+Allocator:  user_data/strategy_research/research_allocation/latest_research_family_allocator.md
 EventStudy:user_data/strategy_research/event_studies/latest_event_study.md
 ChanStudy: user_data/strategy_research/event_studies/latest_chan_third_point_event_study.md
 Router:    user_data/strategy_research/reports/latest_current_market_state_family_router.md

@@ -73,6 +73,9 @@ The gate requires these fixed artifacts to be loadable:
 - workflow contract
 - data-derived regime window manifest
 - regime inference quarantine manifest
+- E1-E41 research program postmortem
+- independent research-family allocation
+- current research failure funnel and blocker fingerprint
 - weekly knowledge update layer
 
 The knowledge graph is a multi-domain external brain, not only a price-action
@@ -93,23 +96,26 @@ code from theory alone.
 ## Current Workflow
 
 1. Preflight.
-2. Run the current market-state family router and decide which strategy family is compatible, or choose no-trade.
-3. Load knowledge graph, research memory, and consolidation rules.
-4. Run factor research on `3m`/`5m`/`15m` futures OHLCV.
-5. Convert factor candidates into event-study hypotheses.
-6. Run event study.
-7. Refresh data-derived regime windows and quarantine legacy regime interpretations.
-8. Generate memory-guided strategy variants only after the knowledge/memory layers are refreshed.
-9. Backtest through Freqtrade.
-10. Run event-to-Freqtrade execution alignment when an event definition exists.
-11. Run post-run attribution.
-12. Run failure attribution.
-13. Run recursive-analysis and lookahead-analysis for candidates.
-14. Run walk-forward validation.
-15. Run fee/slippage/funding stress through the promotion/family gate.
-16. Run family risk gate.
-17. Run promotion gate.
-18. Update strategy lineage, research memory, consolidation, dashboard, and registry.
+2. Run the current market-state family router to determine deployment permission, including no-trade.
+3. Rebuild the E1-E41 postmortem and run the independent allocator to choose one under-covered family and its data-derived historical home regime.
+4. Load knowledge graph, research memory, and consolidation rules.
+5. Run allocator-targeted factor research on `3m`/`5m`/`15m` futures using the typed price-action, regime, derivatives, microstructure, and cross-asset registry.
+6. Freeze factor thresholds on the earliest chronological home episode; test gross edge on de-clustered events, then realistic costs and unchanged-threshold replication on later independent regime windows.
+7. Treat any gross-positive single-factor row as supporting evidence only. It may enter structural composition even when its isolated cost or replication gate fails, but it has no standalone authority; compose its frozen condition with a predeclared structural event for the allocated strategy family.
+8. Repeat gross, realistic-cost, and independent validation-window gates on that family-factor composite, and verify any auxiliary input has a causal Freqtrade runtime path.
+9. Refresh the failure funnel. If there is no current validated composite event or the blocker fingerprint is unchanged, stop adjacent variant generation. All-history scans remain diagnostics and cannot replace current-allocation reports.
+10. Refresh data-derived regime windows and quarantine legacy regime interpretations.
+11. Generate memory-guided strategy variants only when their `source_event_id` matches a current validated family-factor composite event; refreshed knowledge/memory alone cannot authorize code generation.
+12. Backtest through Freqtrade.
+13. Run event-to-Freqtrade execution alignment when an event definition exists.
+14. Run post-run attribution.
+15. Run failure attribution.
+16. Run recursive-analysis and lookahead-analysis for candidates.
+17. Run walk-forward validation.
+18. Run fee/slippage/funding stress through the promotion/family gate.
+19. Run family risk gate. Native finite protection evidence must come from Freqtrade; permanent-disable replay is a separate diagnostic.
+20. Run promotion gate.
+21. Update strategy lineage, research memory, consolidation, dashboard, and registry.
 
 Family-risk and promotion gate results are research evidence even when they
 fail. Strategies in the current registered family-gate CSV enter lineage as
@@ -129,6 +135,7 @@ user_data/strategy_research/start_manual_research.sh --knowledge-graph
 user_data/strategy_research/start_manual_research.sh --knowledge-guided-hypotheses
 user_data/strategy_research/start_manual_research.sh --factor-research
 user_data/strategy_research/start_manual_research.sh --factor-to-strategy
+user_data/strategy_research/start_manual_research.sh --failure-funnel
 user_data/strategy_research/start_manual_research.sh --event-study
 user_data/strategy_research/start_manual_research.sh --chan-event-study
 user_data/strategy_research/start_manual_research.sh --event-execution-alignment
@@ -217,6 +224,9 @@ still require trade-level artifacts before dry-run review.
 - Reports: `user_data/strategy_research/reports/`
 - Factor research: `user_data/strategy_research/factors/latest_factor_research.md`
 - Factor-to-strategy plan: `user_data/strategy_research/factors/latest_factor_strategy_plan.md`
+- Research failure funnel: `user_data/strategy_research/failure_funnel/latest_research_failure_funnel.md`
+- E1-E41 postmortem: `user_data/strategy_research/postmortems/latest_research_program_postmortem.md`
+- Research allocator: `user_data/strategy_research/research_allocation/latest_research_family_allocator.md`
 - Event study: `user_data/strategy_research/event_studies/latest_event_study.md`
 - Chan third-point event study: `user_data/strategy_research/event_studies/latest_chan_third_point_event_study.md`
 - Current market router: `user_data/strategy_research/reports/latest_current_market_state_family_router.md`
@@ -277,10 +287,10 @@ context, then classifies the current market as `bear_continuation`,
 `bear_relief_or_mixed`, `bull_trend`, `range_or_compression`,
 `high_vol_mixed`, or `mixed_unknown`.
 
-It maps that state to strategy-family decisions such as A1/D1 short watch,
+It maps that state to strategy-family decisions such as A1/C1/D1 short watch,
 C2 future bull module, B range-only research, E compression research, or F
 defense/no-trade. `off_or_wait` and no-trade are valid outputs; they prevent
-the Agent from forcing A1/D1 experiments into incompatible regimes. The report
+the Agent from forcing A1/C1/D1 experiments into incompatible regimes. The report
 is research-only and never changes registry, dry-run, live config, or strategy
 code.
 
