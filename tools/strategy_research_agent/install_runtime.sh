@@ -133,4 +133,13 @@ if [[ -f "$ROOT/user_data/strategy_research/runtime/config_futures_dryrun.templa
   echo "Installed user_data/config_futures_dryrun.json from runtime template; replace CHANGE_ME fields before use."
 fi
 
+# Rebuild the generated operating rules after tracked policy/runtime upgrades.
+# Without this, an older local agent_operating_rules.json can shadow the newly
+# installed versioned contract and make the workflow gate fail until a manual
+# consolidation refresh is run.
+if [[ -f "$ROOT/user_data/strategy_research/build_research_consolidation.py" ]]; then
+  "$ROOT/.venv/bin/python" \
+    "$ROOT/user_data/strategy_research/build_research_consolidation.py"
+fi
+
 echo "Installed strategy research agent runtime files into user_data/."

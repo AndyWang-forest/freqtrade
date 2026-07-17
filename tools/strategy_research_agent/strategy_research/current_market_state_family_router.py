@@ -17,6 +17,8 @@ from typing import Any
 
 import pandas as pd
 
+from research_target import resolve_target_from_payload
+
 
 PAIRS = ["BTC_USDT_USDT", "ETH_USDT_USDT"]
 PAIR_LABEL = {"BTC_USDT_USDT": "BTC/USDT:USDT", "ETH_USDT_USDT": "ETH/USDT:USDT"}
@@ -142,7 +144,6 @@ class FamilyDecision:
 
 def classify_state(features: dict[str, Any]) -> tuple[str, str]:
     ret5 = features["combined"]["ret_5d"]
-    ret15 = features["combined"]["ret_15d"]
     ret30 = features["combined"]["ret_30d"]
     ret65 = features["combined"]["ret_65d"]
     ema_gap = features["combined"]["ema30_120_gap"]
@@ -160,7 +161,7 @@ def classify_state(features: dict[str, Any]) -> tuple[str, str]:
             )
         return (
             "bear_continuation",
-            "30/65d are bearish and latest5 does not show a strong relief rally; A1/D1 can be considered only if their own event appears.",
+            "30/65d are bearish and latest5 does not show a strong relief rally; A1/C1/D1 can be considered only if their own event appears.",
         )
     if ret30 > 0.08 and ema_gap > 0.02:
         return ("bull_trend", "30d trend and EMA structure are positive; C2/A2/D2 home-regime research is relevant.")
@@ -194,6 +195,21 @@ def family_decisions(features: dict[str, Any], state: str) -> list[FamilyDecisio
             "A1 needs failed-bounce evidence. Current relief/mixed state should block blind shorts." if relief else "Bear state is compatible, but only strategy event can trigger.",
             e,
             "Do not micro-tune A1; require fresh failed-bounce event plus external permission before any new entry.",
+        )
+    )
+    decisions.append(
+        FamilyDecision(
+            "C1",
+            "downtrend_pullback_short",
+            "conditional_watch" if bearish and not relief else "off_or_wait",
+            (
+                "Bear continuation is compatible, but C1 still requires its own 15m "
+                "pullback-resume event and completed-1h ETH/BTC downtrend confirmation."
+                if bearish and not relief
+                else "C1 is bear-home only; relief, range, bull, or mixed states block its short entry."
+            ),
+            e,
+            "Keep the frozen C1 signal; enable it only when both bear-router permission and its own event agree.",
         )
     )
     decisions.append(
@@ -372,6 +388,9 @@ def write_outputs(payload: dict[str, Any], decisions: list[FamilyDecision], ts: 
         "- Fixed risk context: isolated 50x, ROI `{0:1.20,180:1.50,360:1.00}`, stoploss `-0.60`.",
         f"- Current state: `{payload['current_state']}`",
         f"- State reason: {payload['state_reason']}",
+        f"- Deployment target: regime `{(payload.get('deployment_target') or {}).get('regime_label') or 'none'}`, "
+        f"families `{', '.join((payload.get('deployment_target') or {}).get('family_codes') or []) or 'no-trade'}`",
+        "- Research allocation is independent and is written by `research_family_allocator.py`.",
         "",
         "## Combined Evidence",
         "",
@@ -456,6 +475,7 @@ def main() -> int:
         "regime_manifest": load_manifest_context(),
         "family_decisions": [asdict(item) for item in decisions],
     }
+    payload["deployment_target"] = resolve_target_from_payload(payload).as_dict()
     write_outputs(payload, decisions, ts)
     print(REPORT_DIR / f"current_market_state_family_router_{ts}.md")
     print(REPORT_DIR / "latest_current_market_state_family_router.md")

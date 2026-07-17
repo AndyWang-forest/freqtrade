@@ -22,6 +22,9 @@ LATEST_MD = OUTPUT_DIR / "latest_research_memory.md"
 GRAPH_CONTEXT_JSON = AGENT_ROOT / "knowledge/graph/strategy_agent_graph_context.json"
 MANUAL_LESSONS_DIR = OUTPUT_DIR / "manual_lessons"
 REGIME_QUARANTINE_JSON = AGENT_ROOT / "regime_windows/regime_inference_quarantine.json"
+FAILURE_FUNNEL_JSON = AGENT_ROOT / "failure_funnel/latest_research_failure_funnel.json"
+PROGRAM_POSTMORTEM_JSON = AGENT_ROOT / "postmortems/latest_research_program_postmortem.json"
+RESEARCH_ALLOCATOR_JSON = AGENT_ROOT / "research_allocation/latest_research_family_allocator.json"
 LEGACY_REGIME_TOKENS = [
     "bull_home",
     "range_home",
@@ -149,10 +152,55 @@ def memory_rule_for_mode(mode: str) -> str:
     return rules.get(mode, "Keep this failure mode visible in the next experiment design.")
 
 
-def build_next_focus(agenda: dict[str, Any], nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def valid_blocker(value: Any) -> bool:
+    return str(value or "").strip().lower() not in {"", "none", "unknown", "unknown_blocker"}
+
+
+def build_next_focus(
+    agenda: dict[str, Any],
+    nodes: list[dict[str, Any]],
+    failure_funnel: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    funnel = failure_funnel or {}
+    decision = funnel.get("current_target_decision", {})
+    if funnel and decision.get("strategy_synthesis_allowed") is False:
+        target = funnel.get("current_target", {})
+        families = target.get("family_codes", [])
+        focus = [
+            {
+                "strategy": "current_" + "_".join(families or ["no_trade"]) + "_research_target",
+                "blocker": decision.get("decision") or "no_current_validated_factor_event",
+                "objective": decision.get("next_action"),
+                "success_gate": "At least one current, de-clustered factor event has positive gross and realistic-cost edge in independent regime windows.",
+                "next_command": "user_data/strategy_research/start_manual_research.sh --factor-research",
+                "source": "research_failure_funnel",
+            }
+        ]
+        pending = next(
+            (
+                item
+                for item in funnel.get("entries", [])
+                if item.get("experiment") in {"E36", "E37"}
+                and item.get("primary_category") == "data_blocked"
+            ),
+            None,
+        )
+        if pending:
+            focus.append(
+                {
+                    "strategy": "E32_E36_prospective_L1_evidence",
+                    "blocker": "prospective_sample_gate_pending",
+                    "objective": "Continue unchanged L1 collection; keep outcomes unread until the preregistered sample gate passes.",
+                    "success_gate": "Two independent complete 7-day range windows with at least 99.5% 15m coverage.",
+                    "next_command": "user_data/strategy_research/start_manual_research.sh --failure-funnel",
+                    "source": "research_failure_funnel",
+                }
+            )
+        return focus
+
     focus = []
     for item in agenda.get("top_priorities", [])[:8]:
-        if has_legacy_regime_token(item):
+        if has_legacy_regime_token(item) or not valid_blocker(item.get("blocker")):
             continue
         focus.append(
             {
@@ -169,11 +217,15 @@ def build_next_focus(agenda: dict[str, Any], nodes: list[dict[str, Any]]) -> lis
     for item in nodes:
         if has_legacy_regime_token(item):
             continue
-        if item.get("recommended_state") in {"research_candidate", "watchlist", "redesign"}:
+        blocker = item.get("failure_attribution", {}).get("top_mode")
+        if (
+            item.get("recommended_state") in {"research_candidate", "watchlist", "redesign"}
+            and valid_blocker(blocker)
+        ):
             focus.append(
                 {
                     "strategy": item.get("name"),
-                    "blocker": item.get("failure_attribution", {}).get("top_mode"),
+                    "blocker": blocker,
                     "objective": first_action(item),
                     "success_gate": item.get("success_gate") or "Improve evidence without violating safety gates.",
                     "next_command": "user_data/strategy_research/start_manual_research.sh --memory-guided-hypotheses",
@@ -193,7 +245,14 @@ def load_regime_quarantine() -> dict[str, Any]:
 
 
 def active_manual_lessons(lessons: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    return [lesson for lesson in lessons if lesson.get("quarantine_status") != "needs_regime_relabel"]
+    inactive_statuses = {"superseded", "retired", "quarantined"}
+    return [
+        lesson
+        for lesson in lessons
+        if lesson.get("quarantine_status") != "needs_regime_relabel"
+        and str(lesson.get("status") or "active_research_lesson")
+        not in inactive_statuses
+    ]
 
 
 def build_knowledge_gaps(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -302,6 +361,9 @@ def build_payload() -> dict[str, Any]:
     manual_lessons = load_manual_lessons()
     active_lessons = active_manual_lessons(manual_lessons)
     regime_quarantine = load_regime_quarantine()
+    failure_funnel = load_json(FAILURE_FUNNEL_JSON)
+    program_postmortem = load_json(PROGRAM_POSTMORTEM_JSON)
+    research_allocator = load_json(RESEARCH_ALLOCATOR_JSON)
     nodes = lineage.get("nodes", [])
     failure_summary = failure.get("failure_mode_summary", [])
     payload = {
@@ -310,16 +372,33 @@ def build_payload() -> dict[str, Any]:
         "strategy_count": len(nodes),
         "active_roots": build_active_roots(nodes),
         "avoid_patterns": build_avoid_patterns(nodes, failure_summary),
-        "next_focus": build_next_focus(agenda, nodes),
+        "next_focus": build_next_focus(agenda, nodes, failure_funnel),
         "knowledge_gaps": build_knowledge_gaps(nodes),
         "knowledge_memory": build_knowledge_memory(graph_context) if graph_context else {},
         "strategy_taxonomy": taxonomy_summary(),
-        "manual_lessons": manual_lessons,
+        "manual_lessons": active_lessons,
+        "manual_lesson_exclusions": [
+            {
+                "id": lesson.get("id"),
+                "status": lesson.get("status"),
+                "quarantine_status": lesson.get("quarantine_status"),
+                "superseded_by": lesson.get("superseded_by"),
+            }
+            for lesson in manual_lessons
+            if lesson not in active_lessons
+        ],
         "regime_inference_quarantine": {
             "status": regime_quarantine.get("status") or ("missing" if not regime_quarantine else "active"),
             "entry_count": len(regime_quarantine.get("entries", [])) if regime_quarantine else 0,
             "path": rel(REGIME_QUARANTINE_JSON),
             "policy": regime_quarantine.get("policy", {}),
+        },
+        "program_reflection": {
+            "scope": program_postmortem.get("scope"),
+            "decision": program_postmortem.get("decision", {}),
+            "family_matrix": program_postmortem.get("family_matrix", []),
+            "research_allocation": research_allocator.get("research_allocation", {}),
+            "deployment_permission": research_allocator.get("deployment_permission", {}),
         },
         "durable_rules": [
             "Never promote a strategy from a single favorable slice.",
@@ -332,6 +411,10 @@ def build_payload() -> dict[str, Any]:
             "Do not repeat archived variants unless the new experiment changes the diagnosed failure mode.",
             "Generate new hypotheses from active knowledge-graph cards only; quarantined cards are reference material, not strategy fuel.",
             "Any knowledge-derived strategy must remain research-only until backtest, recursive, lookahead, regime, cost, and promotion gates pass.",
+            "Do not generate an adjacent strategy variant when the current failure-funnel blocker is unchanged or when no current validated factor event exists.",
+            "The current market-state router controls deployment permission only; the independent allocator selects the next under-covered research family across data-derived home regimes.",
+            "Suspend adjacent variants after three consecutive edge-readable failures reuse the same family, mechanism, and data source; data/sample blockers do not count as edge failures.",
+            "Keep E1 and E33 frozen as retained research assets; keep E23 and E32 waiting for genuinely new prospective evidence instead of rerunning them unchanged.",
         ]
         + [lesson["memory_rule"] for lesson in active_lessons if lesson.get("memory_rule")],
         "source_artifacts": {
@@ -341,6 +424,9 @@ def build_payload() -> dict[str, Any]:
             "strategy_assessment": rel(AGENT_ROOT / "strategy_assessments/latest_strategy_assessment.json") if assessment else None,
             "knowledge_graph_context": rel(GRAPH_CONTEXT_JSON) if graph_context else None,
             "regime_inference_quarantine": rel(REGIME_QUARANTINE_JSON) if regime_quarantine else None,
+            "research_failure_funnel": rel(FAILURE_FUNNEL_JSON) if failure_funnel else None,
+            "research_program_postmortem": rel(PROGRAM_POSTMORTEM_JSON) if program_postmortem else None,
+            "research_family_allocator": rel(RESEARCH_ALLOCATOR_JSON) if research_allocator else None,
         },
     }
     return payload
@@ -384,6 +470,19 @@ def write_markdown(path: Path, payload: dict[str, Any]) -> None:
     for item in payload["knowledge_gaps"]:
         lines.append("| {gap} | {count} | {close_by} |".format(**item))
     knowledge = payload.get("knowledge_memory") or {}
+    reflection = payload.get("program_reflection") or {}
+    allocation = reflection.get("research_allocation") or {}
+    lines.extend(
+        [
+            "",
+            "## Program Reflection",
+            "",
+            f"- Postmortem scope: `{reflection.get('scope') or 'missing'}`",
+            f"- Next research allocation: `{allocation.get('family_code') or 'none'}` / `{allocation.get('selected_family') or 'none'}` in `{allocation.get('regime_label') or 'none'}`.",
+            f"- Strategy synthesis allowed: `{allocation.get('strategy_synthesis_allowed', False)}`",
+            "- Frozen assets: `E1`, `E33`; prospective wait branches: `E23`, `E32`.",
+        ]
+    )
     lines.extend(
         [
             "",

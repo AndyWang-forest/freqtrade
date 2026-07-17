@@ -47,6 +47,35 @@ CONSECUTIVE_LOSS_PAUSE = 3
 STRESS_HOME_TOTAL_FLOOR_PCT = -10.0
 STRESS_HOME_WORST_FLOOR_PCT = -15.0
 
+RISK_EVIDENCE_RAW = "raw_unprotected"
+RISK_EVIDENCE_NATIVE = "native_finite_runtime_protections"
+RISK_EVIDENCE_PERSISTENT = "persistent_family_disable"
+RISK_EVIDENCE_MODELS = {
+    RISK_EVIDENCE_RAW,
+    RISK_EVIDENCE_NATIVE,
+    RISK_EVIDENCE_PERSISTENT,
+}
+
+NATIVE_PROTECTION_CONTRACT = {
+    "MaxDrawdown": {
+        "lookback_period_candles": 96,
+        "trade_limit": 4,
+        "stop_duration_candles": 48,
+        "max_allowed_drawdown": 0.10,
+    },
+    "StoplossGuard": {
+        "lookback_period_candles": 96,
+        "trade_limit": 3,
+        "stop_duration_candles": 32,
+        "only_per_pair": False,
+        "only_per_side": False,
+        "required_profit": 0.0,
+    },
+    "CooldownPeriod": {
+        "stop_duration_candles": 8,
+    },
+}
+
 FAMILY_INFERENCE = [
     ("SecondLeg", "downtrend_failed_bounce_short"),
     ("FailedBounce", "downtrend_failed_bounce_short"),
@@ -124,6 +153,23 @@ def parse_args() -> argparse.Namespace:
         default=CONSECUTIVE_LOSS_PAUSE,
         help="Pause after this many consecutive stop_loss exits. Time-stop drifts are not counted as big losses.",
     )
+    parser.add_argument(
+        "--risk-evidence-model",
+        choices=sorted(RISK_EVIDENCE_MODELS),
+        default=RISK_EVIDENCE_RAW,
+        help=(
+            "How guarded PnL was produced. Native finite protections must come from an actual "
+            "Freqtrade backtest with protections enabled. Persistent family disable is a separate "
+            "account-controller diagnostic and is never described as Freqtrade runtime PnL."
+        ),
+    )
+    parser.add_argument(
+        "--candidate-strategy",
+        help=(
+            "Optional canonical candidate name when the input was produced by a research-only "
+            "runtime-protection subclass. The artifact strategy remains unchanged for trade loading."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -178,6 +224,17 @@ def row_key(row: dict[str, Any]) -> tuple[str, str, str, str]:
         row.get("window", ""),
         scenario_label(row.get("scenario")),
     )
+
+
+def risk_evidence_model(row: dict[str, Any], default_model: str) -> str:
+    model = str(row.get("risk_evidence_model") or default_model)
+    if model not in RISK_EVIDENCE_MODELS:
+        raise ValueError(f"Unsupported risk evidence model: {model}")
+    return model
+
+
+def candidate_strategy_name(row: dict[str, Any], cli_alias: str | None) -> str:
+    return str(row.get("candidate_strategy") or cli_alias or row.get("strategy") or "")
 
 
 def canonical_gate_window(window: str) -> str:
@@ -359,28 +416,47 @@ def simulate_row_from_trades(
         trades_blocked=trades_blocked,
         max_drawdown_pct=round(max_drawdown, 4),
         pause_reason=pause_reason or "none",
-        evidence_mode="trade_level",
+        evidence_mode=RISK_EVIDENCE_PERSISTENT,
     )
 
 
-def simulate_row_aggregate(row: dict[str, Any]) -> SimResult:
+def simulate_row_direct(row: dict[str, Any], evidence_model: str) -> SimResult:
     adjusted = fnum(row, "adjusted_profit_pct") or fnum(row, "profit_total_pct")
-    guarded = max(adjusted, HOSTILE_GUARDED_WORST_GATE) if row.get("slice") == "regime" else adjusted
     return SimResult(
         raw_profit_pct=round(adjusted, 4),
-        guarded_profit_pct=round(guarded, 4),
+        guarded_profit_pct=round(adjusted, 4),
         trades_seen=inum(row, "trades"),
         trades_taken=inum(row, "trades"),
         trades_blocked=0,
         max_drawdown_pct=fnum(row, "max_drawdown_pct"),
-        pause_reason="aggregate_only",
-        evidence_mode="aggregate_simulation",
+        pause_reason="native_finite_lock" if evidence_model == RISK_EVIDENCE_NATIVE else "none",
+        evidence_mode=evidence_model,
     )
 
 
-def simulate_row(row: dict[str, Any], drawdown_pause_pct: float, consecutive_loss_pause: int) -> SimResult:
+def simulate_row(
+    row: dict[str, Any],
+    drawdown_pause_pct: float,
+    consecutive_loss_pause: int,
+    evidence_model: str = RISK_EVIDENCE_PERSISTENT,
+) -> SimResult:
+    """Return guarded evidence without pretending a replay is native runtime PnL.
+
+    Native finite protections are path dependent and can change which later signals
+    are eligible. They therefore must be executed by Freqtrade itself. The legacy
+    trade-list replay remains available only as an explicitly named persistent
+    account-level disable diagnostic.
+    """
+
+    if evidence_model in {RISK_EVIDENCE_RAW, RISK_EVIDENCE_NATIVE}:
+        return simulate_row_direct(row, evidence_model)
     trade_level = simulate_row_from_trades(row, drawdown_pause_pct, consecutive_loss_pause)
-    return trade_level or simulate_row_aggregate(row)
+    if trade_level:
+        return trade_level
+    aggregate = simulate_row_direct(row, RISK_EVIDENCE_PERSISTENT)
+    aggregate.evidence_mode = f"{RISK_EVIDENCE_PERSISTENT}_aggregate_only"
+    aggregate.pause_reason = "persistent_disable_unavailable_without_trades"
+    return aggregate
 
 
 def summarize_strategy(
@@ -390,11 +466,17 @@ def summarize_strategy(
     drawdown_pause_pct: float,
     consecutive_loss_pause: int,
     regime_manifest: dict[str, Any],
+    default_evidence_model: str,
 ) -> dict[str, Any]:
     high_rows = [row for row in rows if scenario_is_high_fee(row)]
     stress_rows = [row for row in rows if scenario_is_stress(row)]
     sims = {
-        row_key(row): simulate_row(row, drawdown_pause_pct, consecutive_loss_pause)
+        row_key(row): simulate_row(
+            row,
+            drawdown_pause_pct,
+            consecutive_loss_pause,
+            risk_evidence_model(row, default_evidence_model),
+        )
         for row in high_rows
     }
     main = {
@@ -460,7 +542,12 @@ def summarize_strategy(
     hostile_guarded_total = sum(sim.guarded_profit_pct for _, sim in hostile)
     evidence_modes = sorted({sim.evidence_mode for sim in sims.values()})
     stress_sims = {
-        row_key(row): simulate_row(row, drawdown_pause_pct, consecutive_loss_pause)
+        row_key(row): simulate_row(
+            row,
+            drawdown_pause_pct,
+            consecutive_loss_pause,
+            risk_evidence_model(row, default_evidence_model),
+        )
         for row in stress_rows
     }
     stress_home_rows = [
@@ -473,14 +560,27 @@ def summarize_strategy(
     home_episode_positive = sum(1 for _, sim in home_rows if sim.guarded_profit_pct > 0)
     home_episode_total = len(home_rows)
     home_episode_worst = min((sim.guarded_profit_pct for _, sim in home_rows), default=0.0)
-    aggregate_rows_with_trades = [
+    persistent_aggregate_rows_with_trades = [
         row.get("window", "")
         for row in high_rows
-        if sims[row_key(row)].evidence_mode == "aggregate_simulation" and inum(row, "trades") > 0
+        if sims[row_key(row)].evidence_mode.endswith("_aggregate_only") and inum(row, "trades") > 0
+    ]
+    non_native_rows_with_trades = [
+        f"{row.get('slice', '')}/{row.get('window', '')}/{scenario_label(row.get('scenario'))}"
+        for row in high_rows + stress_rows
+        if inum(row, "trades") > 0
+        and risk_evidence_model(row, default_evidence_model) != RISK_EVIDENCE_NATIVE
     ]
 
     blockers: list[str] = []
     supports: list[str] = []
+    if non_native_rows_with_trades:
+        blockers.append(
+            "native finite Freqtrade protection evidence is missing for rows with trades: "
+            + ", ".join(sorted(set(non_native_rows_with_trades)))
+        )
+    else:
+        supports.append("all rows with trades use native finite Freqtrade protection evidence")
     target_label = "home-regime" if evaluation_mode == "manifest_home" else "65d target-regime"
     if target_65 <= TARGET_65D_GATE:
         blockers.append(f"{target_label} guarded profit {target_65:.4f}% <= {TARGET_65D_GATE:.1f}%")
@@ -529,9 +629,10 @@ def summarize_strategy(
         supports.append(f"hostile-regime guarded worst {hostile_guarded_worst:.4f}% is contained")
     if wf_total and wf_positive < wf_total and wf_worst < -2.0:
         blockers.append(f"walk-forward guarded positives {wf_positive}/{wf_total}, worst {wf_worst:.4f}%")
-    if aggregate_rows_with_trades:
+    if persistent_aggregate_rows_with_trades:
         blockers.append(
-            "some rows with trades used aggregate simulation; require trade-level confirmation before dry-run review"
+            "persistent family-disable rows lack trade-level artifacts: "
+            + ", ".join(sorted(set(persistent_aggregate_rows_with_trades)))
         )
 
     ready = not blockers
@@ -539,8 +640,10 @@ def summarize_strategy(
     next_actions: list[str] = []
     if blockers:
         next_actions.append("improve_regime_router_or_family_risk_controls")
-    if aggregate_rows_with_trades:
-        next_actions.append("rerun_with_trade_level_artifacts")
+    if non_native_rows_with_trades:
+        next_actions.append("rerun_with_native_freqtrade_protections")
+    if persistent_aggregate_rows_with_trades:
+        next_actions.append("rerun_persistent_disable_diagnostic_with_trade_level_artifacts")
     if ready:
         next_actions.append("run_recursive_lookahead_and_manual_dryrun_review")
     if not next_actions:
@@ -574,6 +677,7 @@ def summarize_strategy(
         "hostile_guarded_worst_pct": round(hostile_guarded_worst, 4),
         "hostile_guarded_total_pct": round(hostile_guarded_total, 4),
         "evidence_modes": evidence_modes,
+        "risk_evidence_model": default_evidence_model,
         "supports": supports,
         "blockers": blockers,
         "blocks": "; ".join(blockers) if blockers else "none",
@@ -586,7 +690,7 @@ def build_payload(csv_path: Path, args: argparse.Namespace, provenance: dict[str
     regime_manifest = load_regime_manifest()
     grouped: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
     for row in rows:
-        strategy = row.get("strategy", "")
+        strategy = candidate_strategy_name(row, args.candidate_strategy)
         family = infer_family(strategy, row)
         grouped[(family, strategy)].append(row)
     verdicts = [
@@ -597,6 +701,7 @@ def build_payload(csv_path: Path, args: argparse.Namespace, provenance: dict[str
             args.drawdown_pause_pct,
             args.consecutive_loss_pause,
             regime_manifest,
+            args.risk_evidence_model,
         )
         for (family, strategy), strategy_rows in sorted(grouped.items())
     ]
@@ -630,12 +735,13 @@ def build_payload(csv_path: Path, args: argparse.Namespace, provenance: dict[str
         "generated_at_utc": now_utc(),
         "source_csv": rel(csv_path),
         "source_provenance": provenance or {},
-        "gate_version": 2,
+        "gate_version": 3,
         "scope": "all_strategy_families",
         "promotion_principle": (
             "Strategy families do not need to be all-regime holy grails.  Dry-run review requires "
             "family home-regime edge under the realistic-cost primary screen plus hostile-regime loss containment "
-            "under family/portfolio circuit breakers. Current non-home windows with zero trades are treated as "
+            "under executable native Freqtrade protections. A persistent account-level family disable remains a "
+            "separate diagnostic model and is never presented as runtime PnL. Current non-home windows with zero trades are treated as "
             "abstention evidence, not failed target-regime profit. Stress cost is a safety check, not the sole entry filter."
         ),
         "regime_manifest": {
@@ -649,6 +755,8 @@ def build_payload(csv_path: Path, args: argparse.Namespace, provenance: dict[str
             "primary_cost_scenario": PRIMARY_SCENARIO,
             "family_drawdown_pause_pct": args.drawdown_pause_pct,
             "consecutive_stop_loss_pause": args.consecutive_loss_pause,
+            "risk_evidence_model": args.risk_evidence_model,
+            "native_protection_contract": NATIVE_PROTECTION_CONTRACT,
             "hostile_guarded_worst_gate_pct": HOSTILE_GUARDED_WORST_GATE,
             "stress_home_total_floor_pct": STRESS_HOME_TOTAL_FLOOR_PCT,
             "stress_home_worst_floor_pct": STRESS_HOME_WORST_FLOOR_PCT,

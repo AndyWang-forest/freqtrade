@@ -261,8 +261,69 @@ def node_from_pool(pool: str, path: Path, card: dict[str, Any]) -> dict[str, Any
             "recommendation": "Historical evidence only; do not reactivate without a new hypothesis." if pool == "rejected" else "",
         },
         "recommended_state": "archive_or_redesign" if pool == "rejected" else pool,
-        "evidence_paths": [rel(path)],
+        "evidence_paths": list(
+            dict.fromkeys(
+                [
+                    rel(path),
+                    *[
+                        str(item)
+                        for item in card.get("evidence", [])
+                        if item
+                    ],
+                ]
+            )
+        ),
     }
+
+
+def merge_pool_card(
+    node: dict[str, Any],
+    pool: str,
+    path: Path,
+    card: dict[str, Any],
+) -> dict[str, Any]:
+    """Attach durable candidate evidence without replacing gate truth."""
+    pool_node = node_from_pool(pool, path, card)
+    for field in (
+        "hypothesis",
+        "risk_notes",
+        "experiment_id",
+        "source_review_id",
+        "leverage_cap",
+        "regime",
+        "direction",
+        "change_set",
+        "success_gate",
+    ):
+        value = pool_node.get(field)
+        if value not in (None, "", []):
+            node[field] = value
+    node["source"] = pool_node.get("source") or node.get("source")
+    if node.get("pool_status") == "research_evidence":
+        node["pool_status"] = pool
+    node["metrics"].update(
+        {
+            key: value
+            for key, value in pool_node.get("metrics", {}).items()
+            if value not in (None, "", [])
+        }
+    )
+    node["candidate_card"] = {
+        "pool": pool,
+        "path": rel(path),
+        "classification": card.get("classification") or pool,
+        "recursive_analysis": card.get("recursive_analysis"),
+        "lookahead_analysis": card.get("lookahead_analysis"),
+    }
+    node["evidence_paths"] = list(
+        dict.fromkeys(
+            [
+                *node.get("evidence_paths", []),
+                *pool_node.get("evidence_paths", []),
+            ]
+        )
+    )
+    return node
 
 
 def attach_children(nodes: list[dict[str, Any]]) -> None:
@@ -278,17 +339,32 @@ def attach_children(nodes: list[dict[str, Any]]) -> None:
 def build_payload() -> dict[str, Any]:
     registry = current_registry()
     gate_rows, gate = load_family_gate()
-    current_nodes = [node_from_current(item, gate_rows.get(item.get("name") or item.get("strategy") or "", {})) for item in registry.get("strategies", [])]
+    pool_cards = collect_pool_cards()
+    pool_by_name: dict[str, tuple[str, Path, dict[str, Any]]] = {}
+    for pool, path, card in pool_cards:
+        name = card.get("strategy") or card.get("name") or path.stem
+        pool_by_name.setdefault(name, (pool, path, card))
+
+    current_nodes = []
+    for item in registry.get("strategies", []):
+        name = item.get("name") or item.get("strategy") or ""
+        node = node_from_current(item, gate_rows.get(name, {}))
+        if name in pool_by_name:
+            node = merge_pool_card(node, *pool_by_name[name])
+        current_nodes.append(node)
     current_names = {item["name"] for item in current_nodes}
-    experiment_nodes = [
-        node_from_gate_evidence(name, gate_row, gate)
-        for name, gate_row in gate_rows.items()
-        if name and name not in current_names
-    ]
+    experiment_nodes = []
+    for name, gate_row in gate_rows.items():
+        if not name or name in current_names:
+            continue
+        node = node_from_gate_evidence(name, gate_row, gate)
+        if name in pool_by_name:
+            node = merge_pool_card(node, *pool_by_name[name])
+        experiment_nodes.append(node)
     known_names = current_names | {item["name"] for item in experiment_nodes}
     historical_nodes = [
         node_from_pool(pool, path, card)
-        for pool, path, card in collect_pool_cards()
+        for pool, path, card in pool_cards
         if (card.get("strategy") or card.get("name") or path.stem) not in known_names
     ]
     nodes = current_nodes + experiment_nodes + historical_nodes

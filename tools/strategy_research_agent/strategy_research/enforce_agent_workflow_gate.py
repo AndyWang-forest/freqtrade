@@ -13,6 +13,7 @@ from typing import Any
 
 from regime_window_builder import check_manifest_status
 from repo_paths import find_repo_root
+from safe_gh_write import build_gh_command, validate_repository
 
 
 REPO_ROOT = find_repo_root()
@@ -36,7 +37,11 @@ REQUIRED_DATA_REQUIREMENTS = {
 }
 REQUIRED_GATES = [
     "current_market_state_family_router",
+    "research_program_postmortem",
+    "research_family_allocator",
     "factor_research",
+    "factor_candidate_event_study",
+    "research_failure_funnel",
     "factor_to_strategy_plan",
     "event_study_edge_check",
     "freqtrade_backtesting",
@@ -55,12 +60,18 @@ REQUIRED_REGIME_ARTIFACTS = [
     "user_data/strategy_research/regime_windows/latest_regime_windows.json",
     "user_data/strategy_research/regime_windows/regime_inference_quarantine.json",
 ]
+REQUIRED_RESEARCH_ARTIFACTS = [
+    "user_data/strategy_research/postmortems/latest_research_program_postmortem.json",
+    "user_data/strategy_research/research_allocation/latest_research_family_allocator.json",
+    "user_data/strategy_research/failure_funnel/latest_research_failure_funnel.json",
+]
 ALLOWED_PRIMARY_ENTRY_TIMEFRAMES = {"3m", "5m", "15m"}
 FORBIDDEN_PRIMARY_ENTRY_TIMEFRAMES = {"1h", "4h", "1d"}
 OFFICIAL_FREQTRADE_REMOTE_TOKENS = (
     "github.com/freqtrade/freqtrade",
     "github.com:freqtrade/freqtrade",
 )
+PERSONAL_FREQTRADE_REPOSITORY = "AndyWang-forest/freqtrade"
 LEGACY_EXECUTABLE_REGIME_TOKENS = (
     "bull_20241022_20250120",
     "range_20240507_20240805",
@@ -163,14 +174,51 @@ def validate_official_upstream_write_guard(checks: list[GateCheck]) -> None:
             checks,
             "github:official_freqtrade_write_guard",
             "ok",
-            "official freqtrade/freqtrade present only as read-only fetch remote; PR/comment/push/review/issue operations are forbidden",
+            "official freqtrade/freqtrade present only as read-only fetch remote",
         )
         return
     add(
         checks,
         "github:official_freqtrade_write_guard",
         "ok",
-        "no official freqtrade/freqtrade remote detected; PR/comment/push/review/issue operations remain forbidden",
+        "no official freqtrade/freqtrade remote detected",
+    )
+
+
+def validate_github_cli_write_guard(checks: list[GateCheck]) -> None:
+    try:
+        validate_repository("freqtrade/freqtrade")
+    except ValueError:
+        pass
+    else:
+        add(
+            checks,
+            "github:safe_cli_write_guard",
+            "fail",
+            "safe GitHub wrapper did not reject official freqtrade/freqtrade",
+        )
+        return
+    try:
+        command, environment = build_gh_command(
+            PERSONAL_FREQTRADE_REPOSITORY,
+            ["pr", "create", "--title", "guard-probe"],
+        )
+    except ValueError as exc:
+        add(checks, "github:safe_cli_write_guard", "fail", str(exc))
+        return
+    if command[:3] != ["gh", "pr", "create"] or environment.get("GH_REPO") != PERSONAL_FREQTRADE_REPOSITORY:
+        add(
+            checks,
+            "github:safe_cli_write_guard",
+            "fail",
+            "safe GitHub wrapper did not bind writes to the personal fork",
+        )
+        return
+    add(
+        checks,
+        "github:safe_cli_write_guard",
+        "ok",
+        "GitHub writes are bound to AndyWang-forest/freqtrade; direct gh api is blocked",
     )
 
 
@@ -285,6 +333,11 @@ def validate_rules(path: Path, checks: list[GateCheck]) -> dict[str, Any]:
             add(checks, "must_load_before_research:regime", "fail", "missing " + ", ".join(missing_regime))
         else:
             add(checks, "must_load_before_research:regime", "ok", "regime manifest and quarantine are mandatory")
+        missing_research = [path_text for path_text in REQUIRED_RESEARCH_ARTIFACTS if path_text not in must_load]
+        if missing_research:
+            add(checks, "must_load_before_research:failure_funnel", "fail", "missing " + ", ".join(missing_research))
+        else:
+            add(checks, "must_load_before_research:reflection", "ok", "postmortem, allocator, and failure funnel are mandatory")
     gates = set(rules.get("required_gates", []))
     missing_gates = [gate for gate in REQUIRED_GATES if gate not in gates]
     if missing_gates:
@@ -312,6 +365,25 @@ def validate_rules(path: Path, checks: list[GateCheck]) -> dict[str, Any]:
         add(checks, "current_market_router_contract", "ok", "mandatory current-market router contract present")
     else:
         add(checks, "current_market_router_contract", "fail", "missing mandatory current-market router contract")
+    has_allocator_rule = any("research-family allocator" in str(rule).lower() for rule in prompt_contract)
+    if has_allocator_rule:
+        add(checks, "research_allocator_contract", "ok", "independent next-family allocation contract present")
+    else:
+        add(checks, "research_allocator_contract", "fail", "missing independent research-family allocator contract")
+    has_separation_rule = any(
+        "router controls deployment" in str(rule).lower()
+        or "deployment router controls current trade permission only" in str(rule).lower()
+        for rule in prompt_contract
+    )
+    if has_separation_rule:
+        add(checks, "router_allocator_separation", "ok", "deployment permission and research allocation are separated")
+    else:
+        add(checks, "router_allocator_separation", "fail", "router must not control research allocation")
+    has_funnel_rule = any("failure funnel" in str(rule).lower() for rule in prompt_contract)
+    if has_funnel_rule:
+        add(checks, "research_failure_funnel_contract", "ok", "current blocker funnel contract present")
+    else:
+        add(checks, "research_failure_funnel_contract", "fail", "missing current blocker funnel contract")
     factor_policy = rules.get("factor_research_policy") or {}
     if factor_policy.get("same_agent_subflow") is not True:
         add(checks, "factor_research_policy:same_agent", "fail", "factor research must be same-agent subflow")
@@ -321,6 +393,36 @@ def validate_rules(path: Path, checks: list[GateCheck]) -> dict[str, Any]:
         add(checks, "factor_research_policy:before_strategy", "fail", "factor research must run before strategy generation")
     else:
         add(checks, "factor_research_policy:before_strategy", "ok", "factor research runs before strategy generation")
+    required_factor_flags = {
+        "auto_target_from_research_allocator": "allocator-targeted discovery",
+        "deployment_router_controls_trade_permission_only": "deployment/research responsibility split",
+        "all_history_is_diagnostic_only": "all-history diagnostic isolation",
+        "all_history_cannot_replace_current_report": "current report pointer protection",
+        "gross_edge_before_cost": "gross edge before cost",
+        "next_candle_open_execution_labels": "next-candle-open execution labels",
+        "decluster_overlapping_events": "independent event de-clustering",
+        "single_factor_is_supporting_only": "single-factor evidence cannot authorize strategy code",
+        "gross_factor_may_enter_structural_composition": "gross-positive context may enter structural composition",
+        "family_structural_composite_required": "family structural composition before synthesis",
+        "runtime_data_compatibility_required": "causal Freqtrade runtime data path before synthesis",
+        "strategy_generation_requires_current_validated_event": "validated factor-event linkage before code generation",
+        "adjacent_variant_requires_changed_blocker": "changed blocker before adjacent variant generation",
+    }
+    for key, detail in required_factor_flags.items():
+        if factor_policy.get(key) is not True:
+            add(checks, f"factor_research_policy:{key}", "fail", f"missing {detail}")
+        else:
+            add(checks, f"factor_research_policy:{key}", "ok", detail)
+    expected_domains = {"price_action", "regime", "derivatives", "microstructure", "cross_asset"}
+    actual_domains = set(factor_policy.get("typed_feature_domains") or [])
+    if actual_domains != expected_domains:
+        add(checks, "factor_research_policy:typed_domains", "fail", f"expected {sorted(expected_domains)}, got {sorted(actual_domains)}")
+    else:
+        add(checks, "factor_research_policy:typed_domains", "ok", ", ".join(sorted(actual_domains)))
+    if int(factor_policy.get("independent_regime_windows_required") or 0) < 2:
+        add(checks, "factor_research_policy:independent_windows", "fail", "at least two windows required")
+    else:
+        add(checks, "factor_research_policy:independent_windows", "ok", "two independent regime windows required")
     factor_timeframes = set(factor_policy.get("allowed_primary_timeframes") or [])
     if factor_timeframes != ALLOWED_PRIMARY_ENTRY_TIMEFRAMES:
         add(
@@ -395,6 +497,7 @@ def build_payload() -> dict[str, Any]:
     validate_knowledge_graph_context(checks)
     validate_no_legacy_executable_regime_sources(checks)
     validate_official_upstream_write_guard(checks)
+    validate_github_cli_write_guard(checks)
     failed = [check for check in checks if check.status == "fail"]
     return {
         "status": "fail" if failed else "ok",

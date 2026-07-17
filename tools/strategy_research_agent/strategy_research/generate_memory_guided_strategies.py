@@ -10,12 +10,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from repo_paths import find_repo_root
+from research_target import load_current_research_target, target_mismatch_reason
 from typing import Any
 
 
 REPO_ROOT = find_repo_root()
 AGENT_ROOT = REPO_ROOT / "user_data/strategy_research"
 PLAN_PATH = AGENT_ROOT / "experiments/memory_guided_hypothesis_plan.json"
+FACTOR_PLAN_PATH = AGENT_ROOT / "factors/latest_factor_strategy_plan.json"
 GENERATED_DIR = REPO_ROOT / "user_data/strategies/research_generated"
 GENERATED_FILE = GENERATED_DIR / "memory_guided_research_strategies.py"
 REGISTRY_PATH = AGENT_ROOT / "experiments/memory_guided_strategy_registry.json"
@@ -167,11 +169,25 @@ def variant_source(item: dict[str, Any], class_name: str) -> list[str]:
     return lines
 
 
-def selected_hypotheses(plan: dict[str, Any], limit: int) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+def selected_hypotheses(
+    plan: dict[str, Any],
+    limit: int,
+    validated_event_ids: set[str] | None = None,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     generated = []
     skipped = []
+    validated_event_ids = validated_event_ids or set()
     for item in plan.get("hypotheses", [])[:limit]:
-        if item.get("blocker") in VERIFICATION_ONLY_BLOCKERS:
+        source_event_id = item.get("source_event_id")
+        if not source_event_id or source_event_id not in validated_event_ids:
+            skipped.append(
+                {
+                    "hypothesis_id": item.get("hypothesis_id"),
+                    "strategy": item.get("strategy"),
+                    "reason": "missing_validated_factor_event",
+                }
+            )
+        elif item.get("blocker") in VERIFICATION_ONLY_BLOCKERS:
             skipped.append({"hypothesis_id": item.get("hypothesis_id"), "strategy": item.get("strategy"), "reason": "verification_only_blocker"})
         else:
             generated.append(item)
@@ -263,9 +279,25 @@ def ledger_markdown(payload: dict[str, Any]) -> str:
 def main() -> None:
     args = parse_args()
     plan = load_json(PLAN_PATH)
-    hypotheses, skipped = selected_hypotheses(plan, args.limit)
+    factor_plan = load_json(FACTOR_PLAN_PATH)
+    current_target = load_current_research_target()
+    target_mismatch = target_mismatch_reason(
+        factor_plan.get("research_target") or {}, current_target
+    )
+    validated_event_ids = {
+        str(item["source_event_id"])
+        for item in factor_plan.get("hypotheses", [])
+        if item.get("source_event_id")
+        and item.get("status") == "ready_for_explainable_strategy_hypothesis"
+        and target_mismatch is None
+    }
+    hypotheses, skipped = selected_hypotheses(plan, args.limit, validated_event_ids)
     if not hypotheses:
-        raise SystemExit("No actionable memory-guided hypotheses found. Run plan_memory_guided_hypotheses.py first.")
+        raise SystemExit(
+            "No memory-guided hypothesis references a validated current factor event. "
+            "Run allocator-targeted factor/event research and attach source_event_id before strategy generation."
+            + (f" Current factor plan is stale: {target_mismatch}" if target_mismatch else "")
+        )
     source, registry_entries = build_source(hypotheses)
     payload = {
         "generated_at_utc": datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ"),

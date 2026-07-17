@@ -22,6 +22,7 @@ AGENT_ROOT = REPO_ROOT / "user_data/strategy_research"
 REPORT_DIR = AGENT_ROOT / "mature_researcher"
 LATEST_REPORT_JSON = REPORT_DIR / "latest_researcher_decision.json"
 LATEST_REPORT_MD = REPORT_DIR / "latest_researcher_decision.md"
+FAILURE_FUNNEL_JSON = AGENT_ROOT / "failure_funnel/latest_research_failure_funnel.json"
 
 
 @dataclass
@@ -314,12 +315,63 @@ def build_decision(
     )
 
 
+def build_failure_funnel_decision(funnel: dict[str, Any]) -> Decision:
+    target = funnel.get("current_target", {})
+    decision = funnel.get("current_target_decision", {})
+    families = target.get("family_codes", [])
+    synthesis_allowed = decision.get("strategy_synthesis_allowed") is not False
+    validated_factor_events = int(decision.get("validated_factor_events") or 0)
+    strategy = "current_" + "_".join(families or ["no_trade"]) + "_research_target"
+    return Decision(
+        priority=110,
+        strategy=strategy,
+        diagnosis=(
+            "当前目标没有通过的因子事件，继续堆相邻入场过滤器不会增加新证据。"
+            if decision.get("strategy_synthesis_allowed") is False
+            else "当前目标已有事件证据，但 blocker 尚未变化，先解决已诊断失败点。"
+        ),
+        confidence="high",
+        evidence=[
+            f"current_state={target.get('current_state')}",
+            f"family_codes={families}",
+            f"validated_factor_events={decision.get('validated_factor_events')}",
+            f"category_counts={funnel.get('category_counts', {})}",
+            f"blocker_fingerprint={decision.get('blocker_fingerprint')}",
+        ],
+        response_plan=[
+            decision.get("next_action") or "Refresh the current failure funnel before synthesizing another strategy.",
+            "Keep prospective E23/E32 outcomes unread until their preregistered sample gates pass.",
+            "Do not reinterpret a range/compression no-edge result as permission to weaken the fixed futures risk contract.",
+        ],
+        next_experiments=[
+            "new_causal_factor_or_data_evidence",
+            "unchanged_prospective_l1_collection",
+            "failure_funnel_refresh",
+        ],
+        next_command=(
+            "user_data/strategy_research/start_manual_research.sh --factor-research"
+            if synthesis_allowed
+            else "manual:acquire_new_causal_or_preregistered_prospective_data"
+        ),
+        success_gate="A current factor event passes gross, realistic-cost, and independent-window validation with an explicit source_event_id.",
+        promotion_block=(
+            "No adjacent strategy generation or promotion while the current validated-event count is zero."
+            if validated_factor_events == 0
+            else (
+                "A validated event exists, but adjacent strategy generation remains blocked until the diagnosed "
+                "blocker changes; any existing passed candidate still requires manual dry-run approval and current-router permission."
+            )
+        ),
+    )
+
+
 def build_payload() -> dict[str, Any]:
     agent_report = latest_agent_report()
     behavior = load_json(AGENT_ROOT / "trade_behavior/latest_trade_behavior.json")
     failure = load_json(AGENT_ROOT / "failure_attribution/latest_failure_attribution.json")
     assessment = load_json(AGENT_ROOT / "strategy_assessments/latest_strategy_assessment.json")
     promotion = load_json(AGENT_ROOT / "promotion_reports/latest_promotion_report.json")
+    failure_funnel = load_json(FAILURE_FUNNEL_JSON)
 
     behaviors = index_by_strategy(behavior.get("summaries", []))
     attributions = index_by_strategy(failure.get("attributions", []))
@@ -334,6 +386,11 @@ def build_payload() -> dict[str, Any]:
         for result in agent_report.get("results", [])
         if result.get("strategy")
     ]
+    funnel_decision = failure_funnel.get("current_target_decision", {})
+    if failure_funnel and (
+        funnel_decision.get("strategy_synthesis_allowed") is False or not decisions
+    ):
+        decisions = [build_failure_funnel_decision(failure_funnel)]
     decisions = sorted(decisions, key=lambda item: (-item.priority, item.strategy))
     ready = [
         item.get("strategy")
@@ -358,6 +415,7 @@ def build_payload() -> dict[str, Any]:
             "failure_attribution": rel(AGENT_ROOT / "failure_attribution/latest_failure_attribution.json"),
             "strategy_assessment": rel(AGENT_ROOT / "strategy_assessments/latest_strategy_assessment.json"),
             "promotion_report": rel(AGENT_ROOT / "promotion_reports/latest_promotion_report.json"),
+            "research_failure_funnel": rel(FAILURE_FUNNEL_JSON) if failure_funnel else None,
         },
     }
 

@@ -25,7 +25,10 @@ REPO_ROOT = find_repo_root()
 AGENT_ROOT = REPO_ROOT / "user_data/strategy_research"
 DEFAULT_CONFIG = AGENT_ROOT / "agent_config.json"
 DEFAULT_REGISTRY = AGENT_ROOT / "strategy_registry.json"
+MEMORY_HYPOTHESIS_PLAN = AGENT_ROOT / "experiments/memory_guided_hypothesis_plan.json"
 WORKFLOW_GATE = AGENT_ROOT / "enforce_agent_workflow_gate.py"
+PROGRAM_POSTMORTEM = AGENT_ROOT / "postmortems/latest_research_program_postmortem.json"
+RESEARCH_ALLOCATOR = AGENT_ROOT / "research_allocation/latest_research_family_allocator.json"
 LEVERAGE_SOURCE_PATHS = [
     REPO_ROOT / "user_data/strategies",
     AGENT_ROOT,
@@ -53,6 +56,11 @@ def parse_args() -> argparse.Namespace:
         "--allow-regime-rebuild",
         action="store_true",
         help="Downgrade stale/old manifest failures while running the manifest rebuild mode itself.",
+    )
+    parser.add_argument(
+        "--allow-research-reflection-rebuild",
+        action="store_true",
+        help="Allow missing postmortem/allocator artifacts only while rebuilding prerequisite state.",
     )
     parser.add_argument(
         "--pair-scope",
@@ -202,6 +210,42 @@ def check_strategy_leverage_overrides(checks: list[Check]) -> None:
         add(checks, "risk_policy:strategy_leverage_overrides", "ok", f"All scanned leverage overrides are 50x ({scanned} files).")
 
 
+def check_planned_leverage_contract(checks: list[Check]) -> None:
+    if not MEMORY_HYPOTHESIS_PLAN.exists():
+        add(
+            checks,
+            "risk_policy:planned_leverage",
+            "warn",
+            f"Not generated yet: {rel(MEMORY_HYPOTHESIS_PLAN)}",
+        )
+        return
+    try:
+        payload = load_json(MEMORY_HYPOTHESIS_PLAN)
+    except json.JSONDecodeError as exc:
+        add(checks, "risk_policy:planned_leverage", "fail", f"Invalid JSON: {exc}")
+        return
+
+    offenders = []
+    for item in payload.get("hypotheses", []):
+        proposed = item.get("proposed_changes") or {}
+        if proposed.get("leverage_cap") != 50.0 or proposed.get("leverage_change") != "none_fixed_50x":
+            offenders.append(str(item.get("hypothesis_id") or item.get("strategy") or "unknown"))
+    if offenders:
+        add(
+            checks,
+            "risk_policy:planned_leverage",
+            "fail",
+            "Non-50x hypothesis plans: " + ", ".join(offenders[:20]),
+        )
+    else:
+        add(
+            checks,
+            "risk_policy:planned_leverage",
+            "ok",
+            f"All {len(payload.get('hypotheses', []))} hypothesis plans keep fixed 50x leverage.",
+        )
+
+
 def check_workflow_gate(checks: list[Check], *, allow_regime_rebuild: bool = False) -> None:
     if not WORKFLOW_GATE.exists():
         add(checks, "strategy_agent_gate", "fail", f"Missing {rel(WORKFLOW_GATE)}")
@@ -237,6 +281,67 @@ def check_regime_manifest(checks: list[Check], *, allow_regime_rebuild: bool = F
             else item.status
         )
         add(checks, f"regime:{item.name}", status, item.detail)
+
+
+def check_research_reflection(
+    checks: list[Check], *, allow_rebuild: bool = False
+) -> None:
+    missing_status = "warn" if allow_rebuild else "fail"
+    if not PROGRAM_POSTMORTEM.exists():
+        add(
+            checks,
+            "research_postmortem",
+            missing_status,
+            f"Missing {rel(PROGRAM_POSTMORTEM)}",
+        )
+    else:
+        try:
+            postmortem = load_json(PROGRAM_POSTMORTEM)
+        except (OSError, json.JSONDecodeError) as exc:
+            add(checks, "research_postmortem", "fail", f"Invalid postmortem: {exc}")
+        else:
+            policy = postmortem.get("policy") or {}
+            valid = (
+                postmortem.get("scope") == "E1-E41"
+                and int((postmortem.get("summary") or {}).get("expected_experiments") or 0) == 41
+                and policy.get("data_blocked_is_not_edge_failure") is True
+                and int(policy.get("same_evidence_failure_limit") or 0) == 3
+            )
+            add(
+                checks,
+                "research_postmortem",
+                "ok" if valid else "fail",
+                "E1-E41 indexed; data blockers excluded; three-failure saturation locked" if valid else "postmortem contract mismatch",
+            )
+
+    if not RESEARCH_ALLOCATOR.exists():
+        add(
+            checks,
+            "research_allocator",
+            missing_status,
+            f"Missing {rel(RESEARCH_ALLOCATOR)}",
+        )
+        return
+    try:
+        allocator = load_json(RESEARCH_ALLOCATOR)
+    except (OSError, json.JSONDecodeError) as exc:
+        add(checks, "research_allocator", "fail", f"Invalid allocator: {exc}")
+        return
+    separation = allocator.get("separation_contract") or {}
+    allocation = allocator.get("research_allocation") or {}
+    valid = (
+        separation.get("deployment_router_controls_current_trade_permission") is True
+        and separation.get("research_allocator_controls_historical_research_family") is True
+        and separation.get("research_allocation_never_enables_trading") is True
+        and allocation.get("strategy_synthesis_allowed") is False
+    )
+    selected = allocation.get("family_code") or "none"
+    add(
+        checks,
+        "research_allocator",
+        "ok" if valid else "fail",
+        f"deployment/research split locked; selected={selected}; synthesis blocked" if valid else "allocator separation contract mismatch",
+    )
 
 
 def check_strategy_taxonomy(checks: list[Check]) -> None:
@@ -421,6 +526,8 @@ def check_outputs(checks: list[Check]) -> None:
         "factor_research": AGENT_ROOT / "factors/latest_factor_research.md",
         "factor_strategy_plan": AGENT_ROOT / "factors/latest_factor_strategy_plan.md",
         "event_study": AGENT_ROOT / "event_studies/latest_event_study.md",
+        "research_postmortem": AGENT_ROOT / "postmortems/latest_research_program_postmortem.md",
+        "research_allocator": AGENT_ROOT / "research_allocation/latest_research_family_allocator.md",
         "memory_guided_hypotheses": AGENT_ROOT / "experiments/memory_guided_hypothesis_ledger.md",
         "memory_guided_strategy_ledger": AGENT_ROOT / "experiments/memory_guided_strategy_ledger.md",
         "source_discovery": AGENT_ROOT / "source_discovery/latest_source_discovery.md",
@@ -458,8 +565,13 @@ def main() -> int:
     config = check_agent_config(checks)
     check_fixed_risk_policy(checks, config)
     check_strategy_leverage_overrides(checks)
+    check_planned_leverage_contract(checks)
     check_workflow_gate(checks, allow_regime_rebuild=args.allow_regime_rebuild)
     check_regime_manifest(checks, allow_regime_rebuild=args.allow_regime_rebuild)
+    check_research_reflection(
+        checks,
+        allow_rebuild=args.allow_research_reflection_rebuild,
+    )
     check_strategy_taxonomy(checks)
     check_family_exit_risk_contract(checks)
     check_pair_universe(checks)
