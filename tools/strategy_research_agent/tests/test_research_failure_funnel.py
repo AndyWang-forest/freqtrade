@@ -106,3 +106,51 @@ def test_stale_factor_target_is_data_blocked_not_new_family_edge_failure(monkeyp
     assert decision["factor_target_stale"] is True
     assert decision["validated_factor_events"] == 0
     assert payload["entries"][0]["primary_category"] == "data_blocked"
+
+
+def test_no_research_allocation_does_not_reuse_stale_factor_target(monkeypatch) -> None:
+    payloads = {
+        MODULE.CURRENT_ROUTER: {
+            "deployment_target": {
+                "current_state": "range_or_compression",
+                "action": "research",
+                "family_codes": ["B", "E"],
+            }
+        },
+        MODULE.CURRENT_ALLOCATION: {
+            "deployment_permission": {"current_state": "range_or_compression"},
+            "research_allocation": {
+                "action": "no_research_allocation",
+                "selected_family": None,
+                "reason": "No unsuspended family has enough independent data-derived home windows.",
+                "strategy_synthesis_allowed": False,
+            },
+        },
+        MODULE.CURRENT_FACTOR: {
+            "research_target": {
+                "action": "research",
+                "regime_label": "bear",
+                "family_codes": ["A1"],
+                "allowed_sides": ["short"],
+            },
+            "summary": {"gross_candidates": 0},
+        },
+        MODULE.CURRENT_FACTOR_EVENT: {"summary": {"validated_events": 2}},
+        MODULE.CURRENT_FAMILY_GATE: {},
+    }
+    monkeypatch.setattr(MODULE, "load_json", lambda path: payloads.get(path, {}))
+    monkeypatch.setattr(MODULE, "classify_monitored_studies", lambda: [])
+    monkeypatch.setattr(MODULE, "classify_active_candidates", lambda: [])
+
+    payload = MODULE.build_payload()
+
+    target = payload["current_target"]
+    decision = payload["current_target_decision"]
+    assert target["action"] == "no_research_allocation"
+    assert target["family_codes"] == []
+    assert target["selection_source"] == "research_family_allocator"
+    assert decision["decision"] == "no_research_allocation"
+    assert decision["strategy_synthesis_allowed"] is False
+    assert decision["factor_target_stale"] is True
+    assert decision["validated_factor_events"] == 0
+    assert payload["entries"][0]["experiment"] == "CURRENT_RESEARCH_ALLOCATION_ABSENT"

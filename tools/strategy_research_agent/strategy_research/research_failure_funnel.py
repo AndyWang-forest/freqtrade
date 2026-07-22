@@ -194,15 +194,29 @@ def build_payload(previous: dict[str, Any] | None = None) -> dict[str, Any]:
     allocation = load_json(CURRENT_ALLOCATION)
     factor = load_json(CURRENT_FACTOR)
     factor_event = load_json(CURRENT_FACTOR_EVENT)
-    allocation_target = allocation.get("research_allocation") or {}
-    if allocation_target.get("action") == "research":
+    raw_allocation_target = allocation.get("research_allocation") or {}
+    allocation_action = raw_allocation_target.get("action")
+    no_research_allocation = allocation_action == "no_research_allocation"
+    allocation_target = raw_allocation_target
+    if allocation_action == "research":
         allocation_target = {
             "current_state": (allocation.get("deployment_permission") or {}).get("current_state"),
             "action": "research",
-            "regime_label": allocation_target.get("regime_label"),
-            "family_codes": [allocation_target.get("family_code")],
-            "strategy_families": [allocation_target.get("selected_family")],
-            "allowed_sides": allocation_target.get("allowed_sides") or [],
+            "regime_label": raw_allocation_target.get("regime_label"),
+            "family_codes": [raw_allocation_target.get("family_code")],
+            "strategy_families": [raw_allocation_target.get("selected_family")],
+            "allowed_sides": raw_allocation_target.get("allowed_sides") or [],
+            "selection_source": "research_family_allocator",
+        }
+    elif no_research_allocation:
+        allocation_target = {
+            "current_state": (allocation.get("deployment_permission") or {}).get("current_state"),
+            "action": "no_research_allocation",
+            "regime_label": None,
+            "family_codes": [],
+            "strategy_families": [],
+            "allowed_sides": [],
+            "reason": raw_allocation_target.get("reason"),
             "selection_source": "research_family_allocator",
         }
     else:
@@ -219,8 +233,21 @@ def build_payload(previous: dict[str, Any] | None = None) -> dict[str, Any]:
         tuple(sorted(str(item) for item in target.get("family_codes") or [])),
         tuple(sorted(str(item) for item in target.get("allowed_sides") or [])),
     )
-    factor_target_stale = bool(allocation_target) and factor_signature != target_signature
-    if factor_target_stale:
+    factor_target_stale = bool(raw_allocation_target) and factor_signature != target_signature
+    if no_research_allocation:
+        current_factor_entries = [
+            entry(
+                "CURRENT_RESEARCH_ALLOCATION_ABSENT",
+                "gate_semantic_block",
+                (
+                    raw_allocation_target.get("reason")
+                    or "The allocator selected no eligible research family."
+                )
+                + " Stale factor or router targets cannot reopen strategy synthesis.",
+                CURRENT_ALLOCATION,
+            )
+        ]
+    elif factor_target_stale:
         current_factor_entries = [
             entry(
                 "CURRENT_FACTOR_TARGET_MISMATCH",
@@ -236,7 +263,11 @@ def build_payload(previous: dict[str, Any] | None = None) -> dict[str, Any]:
     for item in entries:
         counts.update(item.get("secondary_categories", []))
 
-    validated_events = 0 if factor_target_stale else int(factor_event.get("summary", {}).get("validated_events") or 0)
+    validated_events = (
+        0
+        if no_research_allocation or factor_target_stale
+        else int(factor_event.get("summary", {}).get("validated_events") or 0)
+    )
     synthesis_allowed = target.get("action") == "research" and validated_events > 0
     current_entries = [
         item for item in entries if str(item.get("experiment", "")).startswith("CURRENT_")
@@ -246,6 +277,7 @@ def build_payload(previous: dict[str, Any] | None = None) -> dict[str, Any]:
         current_counts.update(item.get("secondary_categories", []))
     fingerprint_source = {
         "current_state": target.get("current_state"),
+        "allocation_action": allocation_action,
         "family_codes": target.get("family_codes", []),
         "allowed_sides": target.get("allowed_sides", []),
         "factor_verdict": factor.get("summary", {}).get("verdict"),
@@ -261,7 +293,14 @@ def build_payload(previous: dict[str, Any] | None = None) -> dict[str, Any]:
     blocker_changed = previous_fingerprint is not None and previous_fingerprint != fingerprint
     adjacent_allowed = synthesis_allowed and blocker_changed
 
-    if not synthesis_allowed:
+    if no_research_allocation:
+        decision = "no_research_allocation"
+        next_action = (
+            (raw_allocation_target.get("reason") or "No eligible research family is available.")
+            + " Do not fall back to stale factor or router targets. Reopen research only with a new causal "
+            "evidence fingerprint, newly eligible home windows, or an explicitly approved prospective data plan."
+        )
+    elif not synthesis_allowed:
         decision = "stop_adjacent_variant_generation"
         next_action = (
             "Accumulate new causal evidence or required data for the allocator-selected family; "
