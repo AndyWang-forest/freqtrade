@@ -11,6 +11,7 @@ from pathlib import Path
 
 from repo_paths import find_repo_root
 from research_target import load_current_research_target, target_mismatch_reason
+from mechanism_variant_policy import mechanism_fingerprint, register_variant
 from typing import Any
 
 
@@ -210,6 +211,8 @@ def build_source(hypotheses: list[dict[str, Any]]) -> tuple[str, list[dict[str, 
                 "name": class_name,
                 "base_strategy": item["strategy"],
                 "hypothesis_id": item["hypothesis_id"],
+                "source_event_id": item.get("source_event_id"),
+                "mechanism_fingerprint": item.get("mechanism_fingerprint"),
                 "family": f"memory-guided-{item['blocker']}",
                 "source": "memory_guided_hypothesis_plan",
                 "hypothesis": item["objective"],
@@ -291,7 +294,23 @@ def main() -> None:
         and item.get("status") == "ready_for_explainable_strategy_hypothesis"
         and target_mismatch is None
     }
+    factor_authority = {
+        str(item["source_event_id"]): item
+        for item in factor_plan.get("hypotheses", [])
+        if item.get("source_event_id")
+        and item.get("status") == "ready_for_explainable_strategy_hypothesis"
+        and target_mismatch is None
+    }
     hypotheses, skipped = selected_hypotheses(plan, args.limit, validated_event_ids)
+    hypotheses = [
+        {
+            **item,
+            "mechanism_fingerprint": factor_authority[str(item["source_event_id"])][
+                "mechanism_fingerprint"
+            ],
+        }
+        for item in hypotheses
+    ]
     if not hypotheses:
         raise SystemExit(
             "No memory-guided hypothesis references a validated current factor event. "
@@ -311,6 +330,32 @@ def main() -> None:
     if args.dry_run:
         print(json.dumps(payload, indent=2, ensure_ascii=False))
         return
+    event_report_path = Path(str(factor_plan["factor_candidate_event_report"]))
+    if not event_report_path.is_absolute():
+        event_report_path = REPO_ROOT / event_report_path
+    event_report = load_json(event_report_path)
+    events_by_id = {
+        str(item.get("event_id")): item
+        for item in event_report.get("validated_events") or []
+        if item.get("event_id")
+    }
+    for item in registry_entries:
+        event = events_by_id.get(str(item.get("source_event_id")))
+        if event is None:
+            raise RuntimeError(
+                f"validated event disappeared before mechanism registration: {item.get('source_event_id')}"
+            )
+        observed_fingerprint = mechanism_fingerprint(event)
+        if observed_fingerprint != item.get("mechanism_fingerprint"):
+            raise RuntimeError(
+                "validated event mechanism changed before strategy generation: "
+                f"{item.get('source_event_id')}"
+            )
+        register_variant(
+            event,
+            str(item["name"]),
+            source_event_id=str(item.get("source_event_id")),
+        )
     GENERATED_DIR.mkdir(parents=True, exist_ok=True)
     GENERATED_FILE.write_text(source, encoding="utf-8")
     REGISTRY_PATH.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")

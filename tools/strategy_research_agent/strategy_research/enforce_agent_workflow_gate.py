@@ -38,6 +38,8 @@ REQUIRED_DATA_REQUIREMENTS = {
 REQUIRED_GATES = [
     "current_market_state_family_router",
     "research_program_postmortem",
+    "research_program_reset",
+    "mechanism_variant_gate",
     "research_family_allocator",
     "factor_research",
     "factor_candidate_event_study",
@@ -62,6 +64,8 @@ REQUIRED_REGIME_ARTIFACTS = [
 ]
 REQUIRED_RESEARCH_ARTIFACTS = [
     "user_data/strategy_research/postmortems/latest_research_program_postmortem.json",
+    "user_data/strategy_research/program_reset/latest_research_program_reset.json",
+    "user_data/strategy_research/mechanism_variants/latest_mechanism_variant_policy.json",
     "user_data/strategy_research/research_allocation/latest_research_family_allocator.json",
     "user_data/strategy_research/failure_funnel/latest_research_failure_funnel.json",
 ]
@@ -407,6 +411,9 @@ def validate_rules(path: Path, checks: list[GateCheck]) -> dict[str, Any]:
         "runtime_data_compatibility_required": "causal Freqtrade runtime data path before synthesis",
         "strategy_generation_requires_current_validated_event": "validated factor-event linkage before code generation",
         "adjacent_variant_requires_changed_blocker": "changed blocker before adjacent variant generation",
+        "no_research_allocation_blocks_factor_fallback": "no-allocation blocks stale factor fallback",
+        "positive_realistic_cost_required_for_synthesis": "positive realistic-cost edge before code generation",
+        "three_failed_variants_quarantine_mechanism": "three failed variants quarantine one unchanged mechanism",
     }
     for key, detail in required_factor_flags.items():
         if factor_policy.get(key) is not True:
@@ -423,6 +430,14 @@ def validate_rules(path: Path, checks: list[GateCheck]) -> dict[str, Any]:
         add(checks, "factor_research_policy:independent_windows", "fail", "at least two windows required")
     else:
         add(checks, "factor_research_policy:independent_windows", "ok", "two independent regime windows required")
+    if int(factor_policy.get("positive_home_regime_windows_required_for_synthesis") or 0) != 2:
+        add(checks, "factor_research_policy:positive_home_windows", "fail", "exactly two positive home windows are required before synthesis")
+    else:
+        add(checks, "factor_research_policy:positive_home_windows", "ok", "two positive home windows required before synthesis")
+    if int(factor_policy.get("max_structural_variants_per_mechanism") or 0) != 3:
+        add(checks, "factor_research_policy:mechanism_variant_budget", "fail", "mechanism variant budget must equal three")
+    else:
+        add(checks, "factor_research_policy:mechanism_variant_budget", "ok", "three-variant mechanism budget locked")
     factor_timeframes = set(factor_policy.get("allowed_primary_timeframes") or [])
     if factor_timeframes != ALLOWED_PRIMARY_ENTRY_TIMEFRAMES:
         add(

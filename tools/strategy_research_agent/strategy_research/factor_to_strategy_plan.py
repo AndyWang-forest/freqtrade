@@ -9,6 +9,12 @@ from pathlib import Path
 from typing import Any
 
 from factor_research_protocol import FACTOR_EVENT_METHOD_VERSION
+from mechanism_variant_policy import (
+    load_ledger,
+    mechanism_fingerprint,
+    mechanism_state,
+    validated_event_blockers,
+)
 from repo_paths import find_repo_root
 from research_artifact_index import current_target_report
 from research_target import load_current_research_target, target_mismatch_reason
@@ -70,17 +76,45 @@ def validate_event_report(
         event_families = set(item.get("strategy_family_codes") or [])
         if not event_families or not event_families.issubset(allowed_families):
             return "Validated event contains a missing or wrong-family assignment."
+        evidence_blockers = validated_event_blockers(item)
+        if evidence_blockers:
+            return "Validated event failed the independent synthesis contract: " + ", ".join(
+                evidence_blockers
+            )
     return None
 
 
 def build_payload() -> dict[str, Any]:
     target = load_current_research_target()
     event_path, event_report = load_current_event_report()
-    blocked_reason = validate_event_report(event_report, target)
+    allocator_blocked = target.action != "research"
+    blocked_reason = (
+        target.reason
+        if allocator_blocked
+        else validate_event_report(event_report, target)
+    )
     regime_label = target.regime_label
     candidates = [] if blocked_reason else event_report.get("validated_events", [])
+    ledger = load_ledger()
     hypotheses = []
+    excluded_mechanisms = []
     for index, item in enumerate(candidates, start=1):
+        fingerprint = mechanism_fingerprint(item)
+        variant_state = mechanism_state(fingerprint, ledger)
+        if variant_state["budget_remaining"] <= 0 or variant_state["quarantined"]:
+            excluded_mechanisms.append(
+                {
+                    "source_event_id": item.get("event_id"),
+                    "mechanism_fingerprint": fingerprint,
+                    "reason": (
+                        "three_failed_variants_quarantined"
+                        if variant_state["quarantined"]
+                        else "three_variant_budget_exhausted"
+                    ),
+                    "variant_budget": variant_state,
+                }
+            )
+            continue
         definition = item["event_definition"]
         gross = item["gross_edge"]
         cost = item["realistic_cost"]
@@ -96,6 +130,18 @@ def build_payload() -> dict[str, Any]:
                 "event_definition": definition,
                 "source": "validated_family_factor_composite_event",
                 "source_event_id": item["event_id"],
+                "mechanism_fingerprint": fingerprint,
+                "mechanism_descriptor": {
+                    "strategy_family_codes": item.get("strategy_family_codes") or [],
+                    "regime_label": item.get("regime_label"),
+                    "side": item.get("side"),
+                    "timeframe": item.get("timeframe"),
+                    "structural_event": definition.get("structural_event"),
+                    "factor_domain": definition.get("domain"),
+                    "factor": definition.get("factor"),
+                    "data_requirement": definition.get("data_requirement"),
+                },
+                "variant_budget": variant_state,
                 "strategy_family_codes": item.get("strategy_family_codes") or [],
                 "knowledge_cards": item.get("knowledge_cards") or [],
                 "regime_label": regime_label,
@@ -119,20 +165,28 @@ def build_payload() -> dict[str, Any]:
         "research_target": target.as_dict(),
         "regime_label": regime_label,
         "hypotheses": hypotheses,
+        "excluded_mechanisms": excluded_mechanisms,
         "summary": {
             "factor_candidates": len(candidates),
             "strategy_hypotheses": len(hypotheses),
             "verdict": (
+                "blocked_by_allocator_no_research_target"
+                if allocator_blocked
+                else
                 "blocked_stale_or_wrong_target_event"
                 if blocked_reason
                 else "ready_for_explainable_strategy_hypothesis"
                 if hypotheses
+                else "blocked_by_mechanism_variant_budget"
+                if excluded_mechanisms
                 else "no_validated_event_to_synthesize"
             ),
         },
         "blocked_reason": (
             blocked_reason
             if blocked_reason
+            else "All validated events exhausted or quarantined their three-variant mechanism budget."
+            if excluded_mechanisms
             else None
             if hypotheses
             else "No family-factor composite passed structural, gross-edge, realistic-cost, independent-window, and runtime-compatibility gates."
@@ -176,6 +230,8 @@ def write_markdown(path: Path, payload: dict[str, Any]) -> None:
             "- This is a Strategy Agent sub-flow, not a separate Agent.",
             "- The input is the indexed current allocator-target factor-event report, never an all-history latest pointer.",
             "- Passing factor rows remained supporting evidence until a predeclared family structure plus frozen factor condition passed again.",
+            "- Strategy synthesis independently rechecks positive gross edge, positive realistic-cost edge, two positive home-regime windows, and a causal Freqtrade runtime path.",
+            "- Each unchanged mechanism has a maximum of three structural variants; three failed variants quarantine that mechanism until new evidence changes its fingerprint.",
             "- If blocked, redesign factors, improve data, or run negative controls instead of generating another class from theory.",
         ]
     )

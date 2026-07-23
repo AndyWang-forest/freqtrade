@@ -133,7 +133,7 @@ no-trade:
 user_data/strategy_research/start_manual_research.sh --current-market-router
 ```
 
-The router does not allocate research. Rebuild the E1-E41 postmortem and choose
+The router does not allocate research. Rebuild the E1-E62 postmortem and choose
 the next under-covered family independently:
 
 ```bash
@@ -292,7 +292,7 @@ On Windows, use `README_WINDOWS.md` for the PowerShell cycle runner and Task Sch
 - Family-gate runtime evidence must distinguish native finite Freqtrade protections from persistent account-level disable diagnostics; completed-trade replay cannot be labeled native runtime PnL.
 - The knowledge graph is multi-domain. Price-action ideas must be checked against regime, derivatives, microstructure, cross-asset, and execution-cost context when relevant.
 - Non-OHLCV requirements such as funding, OI, mark/index basis, spread/slippage, L2/order-book data, regime manifest, or runtime config dumps must be verified before strategy synthesis.
-- Every strategy research round must refresh current deployment permission plus the E1-E41 postmortem and independent allocator. No-trade is a valid deployment result and never forces the research family.
+- Every strategy research round must refresh current deployment permission plus the E1-E62 postmortem and independent allocator. No-trade is a valid deployment result and never forces the research family.
 - Three consecutive edge-readable failures using the same family, mechanism, and data source suspend adjacent variants. Data/sample blockers do not count as edge failures.
 - Memory-guided variants must lock the current futures risk policy: isolated USDT-M futures, 50x cap, ROI `{"0":1.20,"180":1.50,"360":1.00}`, and stoploss `-0.60`.
 - Walk-forward validation must reject strategies that only work in one favorable calendar window.

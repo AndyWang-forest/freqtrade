@@ -16,7 +16,7 @@ The current improvement is to integrate those existing parts into one stronger r
 2. Read research memory to understand repeated failures, avoid rules, and next blockers.
 3. Read the consolidation layer to enforce hard research boundaries and required validation gates.
 4. Use the current market-state router only to determine present deployment permission, including a valid no-trade result.
-5. Rebuild the E1-E41 program postmortem, then use the independent research-family allocator to choose one under-covered family, historical home regime, and permitted side for research.
+5. Rebuild the E1-E62 program postmortem and bounded research reset, then use the independent research-family allocator. It may choose one under-covered family, historical home regime, and permitted side, or return `no_research_allocation` and route work only to the frozen evidence-acquisition axis.
 6. Evaluate typed knowledge-derived features in price-action, regime, derivatives, microstructure, and cross-asset domains.
 7. Freeze factor thresholds on the earliest chronological home episode, then check de-clustered gross edge, realistic costs, and unchanged-threshold replication on later independent regime windows.
 8. Treat every gross-positive single-factor distribution as supporting evidence only. It may enter structural composition even if its isolated cost or replication gate fails, but it has no standalone authority; compose its frozen condition with a predeclared structural event for the allocated strategy family.
@@ -44,12 +44,31 @@ budget across historical, data-derived home regimes. A current no-trade result
 must never prevent research into an under-covered family, and a research
 allocation must never enable trading.
 
-Before allocating another experiment, the Agent must classify E1-E41 by family,
+Before allocating another experiment, the Agent must classify E1-E62 by family,
 evidence stage, mechanism, data source, and outcome. Three consecutive
 edge-readable failures using the same family, mechanism, and data source suspend
 adjacent variants in that lane. `data_blocked` and sample/causality blocks do
-not count as failed edge. E1 and E33 remain frozen research assets; E23 and E32
-wait for genuinely new prospective evidence and must not be rerun unchanged.
+not count as failed edge. The audit must separately label retained/effective,
+waiting-for-data, disproven, implementation-error, and sample-insufficient
+experiments. E1 and E33 remain frozen research assets; E32 is implementation
+remediation, while E23/E61/E62 wait for genuinely new prospective evidence and
+must not be rerun unchanged.
+
+E62 is a blind cross-day background acquisition lane, not an active strategy
+experiment slot. It remains outcome-unread until the frozen minimums are met:
+80 independent events, 20 per liquidation side, three pairs per side, three UTC
+dates, and 12 UTC hours. Its acquisition loop may update immutable receipts and
+count-readiness reports only; it must not tune filters or generate strategy code.
+On macOS, launchd acquisition must run from the staged runtime under
+`~/Library/Application Support/FreqtradeStrategyResearch/e62-runtime`, not from
+the TCC-protected repository in `Documents`. The normal Agent entrypoint imports
+only hash-verified immutable receipts/segments and then rebuilds readiness.
+
+One unchanged mechanism may receive at most three structural strategy variants.
+Three failed variants quarantine that mechanism until a newly validated event
+changes the mechanism fingerprint. A new class additionally requires a positive
+family-factor composite event, positive realistic-cost expectancy in two
+independent home-regime windows, and a causal Freqtrade runtime path.
 
 ## Event Study Gate
 
@@ -148,8 +167,10 @@ It must not run a dense Peak threshold grid.
 
 Every strategy research round that runs backtests must end with post-run attribution before it updates research memory, mature researcher queues, or the next experiment plan.
 
-Prospective E23/E32-style monitors may update coverage and collection receipts,
+Prospective E23/E61/E62 monitors may update coverage and collection receipts,
 but must keep outcomes unread until their preregistered sample gates pass.
+E7/E32/E45 are implementation-remediation branches and must not be mislabeled
+as waiting for prospective data.
 
 The attribution gate is part of the same Agent, not a separate Agent. It must reuse the same knowledge graph, research memory, event-study evidence, backtest outputs, exported trades, and promotion blockers. Splitting attribution into a separate Agent is not allowed unless the workflow still treats the result as the same mandatory gate.
 
@@ -242,7 +263,7 @@ research memory directly into strategy classes.
 
 The fixed sequence is:
 
-1. The E1-E41 postmortem and independent allocator select an eligible under-covered family and data-derived home regime.
+1. The E1-E62 postmortem, bounded program reset, and independent allocator either select an eligible under-covered family and data-derived home regime or return `no_research_allocation`. The latter blocks factor fallback and strategy synthesis while evidence acquisition continues.
 2. Knowledge graph and research memory propose typed mechanisms for that allocation.
 3. Factor research scores `3m`, `5m`, and `15m` Binance USDT-M futures OHLCV
    factors against forward return, MFE, MAE, sample count, side, and timeframe.

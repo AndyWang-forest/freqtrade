@@ -618,6 +618,8 @@ def build_payload(pair_scope: str = "core") -> dict[str, Any]:
         raise FileNotFoundError(f"Missing postmortem: {rel(POSTMORTEM_JSON)}")
     if not manifest:
         raise FileNotFoundError(f"Missing regime manifest: {rel(MANIFEST_JSON)}")
+    program_decision = postmortem.get("decision") or {}
+    active_evidence_axis = str(program_decision.get("active_evidence_axis") or "")
 
     counts = registry_counts(registry)
     postmortem_by_family = family_postmortem(postmortem)
@@ -676,8 +678,15 @@ def build_payload(pair_scope: str = "core") -> dict[str, Any]:
             "action": "no_research_allocation",
             "selected_family": None,
             "pair_scope": pair_scope,
-            "reason": "No unsuspended family has enough independent data-derived home windows.",
+            "reason": (
+                "No unsuspended family has enough independent data-derived home windows. "
+                f"Continue the program evidence axis `{active_evidence_axis}` without generating strategy code."
+                if active_evidence_axis
+                else "No unsuspended family has enough independent data-derived home windows."
+            ),
             "strategy_synthesis_allowed": False,
+            "next_stage": "program_evidence_acquisition_only",
+            "active_evidence_axis": active_evidence_axis or None,
         }
     else:
         allocation = {
@@ -699,7 +708,7 @@ def build_payload(pair_scope: str = "core") -> dict[str, Any]:
         }
     payload = {
         "generated_at_utc": now_utc(),
-        "schema_version": 7,
+        "schema_version": 8,
         "research_only": True,
         "pair_scope": pair_scope,
         "deployment_permission": deployment_permission(router),
@@ -716,8 +725,11 @@ def build_payload(pair_scope: str = "core") -> dict[str, Any]:
             "explicit_evidence_wait_reopens_on_window_or_blocker_change": True,
         },
         "frozen_or_waiting_branches": {
-            "frozen_research_assets": ["E1", "E33"],
-            "wait_for_new_prospective_data": ["E23", "E32"],
+            "frozen_research_assets": list(program_decision.get("freeze_assets") or []),
+            "wait_for_new_prospective_data": list(program_decision.get("wait_for_new_data") or []),
+            "implementation_remediation": list(program_decision.get("implementation_remediation") or []),
+            "background_acquisition": list(program_decision.get("background_acquisition") or []),
+            "active_evidence_axis": active_evidence_axis or None,
             "must_not_be_retested_unchanged": True,
         },
         "source_artifacts": {

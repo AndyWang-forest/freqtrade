@@ -631,6 +631,17 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def should_publish_current(args: argparse.Namespace, payload: dict[str, Any]) -> bool:
+    # An allocator-authorized no-allocation result is current truth, not an
+    # all-history diagnostic. Publish it so stale family evidence cannot remain
+    # behind the generic latest pointer.
+    return bool(
+        args.auto_target
+        or payload.get("regime_label")
+        or args.publish_all_history_current
+    )
+
+
 def main() -> None:
     args = parse_args()
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -645,7 +656,7 @@ def main() -> None:
     md_path = OUTPUT_DIR / f"factor_research_{timestamp}.md"
     json_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     write_markdown(md_path, payload)
-    publish_current = bool(payload["regime_label"]) or args.publish_all_history_current
+    publish_current = should_publish_current(args, payload)
     publish_report(
         payload=payload,
         json_path=json_path,

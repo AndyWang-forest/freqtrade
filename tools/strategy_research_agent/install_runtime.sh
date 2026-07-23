@@ -107,6 +107,9 @@ for executable in \
   "$ROOT/user_data/strategy_research/run_daily_research.sh" \
   "$ROOT/user_data/strategy_research/run_tonight_research_daemon.sh" \
   "$ROOT/user_data/strategy_research/run_weekly_knowledge_update.sh" \
+  "$ROOT/user_data/strategy_research/run_e62_background_collection.sh" \
+  "$ROOT/user_data/strategy_research/run_e62_stage_cycle.sh" \
+  "$ROOT/user_data/strategy_research/stage_e62_background_runtime.sh" \
   "$ROOT/user_data/strategy_research/runtime/start_futures_dryrun.sh" \
   "$ROOT/user_data/strategy_research/runtime/preflight_futures_runtime.py" \
   "$ROOT/user_data/strategy_research/automation/install_launchd.sh" \
@@ -133,10 +136,35 @@ if [[ -f "$ROOT/user_data/strategy_research/runtime/config_futures_dryrun.templa
   echo "Installed user_data/config_futures_dryrun.json from runtime template; replace CHANGE_ME fields before use."
 fi
 
-# Rebuild the generated operating rules after tracked policy/runtime upgrades.
+# Rebuild the bounded research reflection and generated operating rules after
+# tracked policy/runtime upgrades.
 # Without this, an older local agent_operating_rules.json can shadow the newly
 # installed versioned contract and make the workflow gate fail until a manual
 # consolidation refresh is run.
+if [[ -f "$ROOT/user_data/strategy_research/import_e62_background_data.py" ]]; then
+  "$ROOT/.venv/bin/python" \
+    "$ROOT/user_data/strategy_research/import_e62_background_data.py" >/dev/null
+fi
+e62_prereg=("$ROOT"/user_data/strategy_research/preregistrations/e62_direct_force_order_exhaustion_continuation_v1_*.json)
+e62_receipts=("$ROOT"/user_data/strategy_research/data_receipts/force_order_market_v2/*.json)
+if [[ -f "${e62_prereg[0]}" && -f "${e62_receipts[0]}" ]]; then
+  "$ROOT/.venv/bin/python" \
+    "$ROOT/user_data/strategy_research/summarize_e61_force_order_inventory.py" >/dev/null
+  "$ROOT/.venv/bin/python" \
+    "$ROOT/user_data/strategy_research/summarize_e62_force_order_sample.py" >/dev/null
+fi
+if [[ -f "$ROOT/user_data/strategy_research/research_program_postmortem.py" ]]; then
+  "$ROOT/.venv/bin/python" \
+    "$ROOT/user_data/strategy_research/research_program_postmortem.py"
+fi
+if [[ -f "$ROOT/user_data/strategy_research/mechanism_variant_policy.py" ]]; then
+  "$ROOT/.venv/bin/python" \
+    "$ROOT/user_data/strategy_research/mechanism_variant_policy.py" >/dev/null
+fi
+if [[ -f "$ROOT/user_data/strategy_research/research_program_reset.py" ]]; then
+  "$ROOT/.venv/bin/python" \
+    "$ROOT/user_data/strategy_research/research_program_reset.py"
+fi
 if [[ -f "$ROOT/user_data/strategy_research/build_research_consolidation.py" ]]; then
   "$ROOT/.venv/bin/python" \
     "$ROOT/user_data/strategy_research/build_research_consolidation.py"

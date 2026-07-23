@@ -340,12 +340,12 @@ def build_failure_funnel_decision(funnel: dict[str, Any]) -> Decision:
         ],
         response_plan=[
             decision.get("next_action") or "Refresh the current failure funnel before synthesizing another strategy.",
-            "Keep prospective E23/E32 outcomes unread until their preregistered sample gates pass.",
+            "Keep prospective E23/E61/E62 outcomes unread until their preregistered sample gates pass; E7/E32/E45 are implementation remediation, not data waits.",
             "Do not reinterpret a range/compression no-edge result as permission to weaken the fixed futures risk contract.",
         ],
         next_experiments=[
             "new_causal_factor_or_data_evidence",
-            "unchanged_prospective_l1_collection",
+            "unchanged_prospective_evidence_collection",
             "failure_funnel_refresh",
         ],
         next_command=(

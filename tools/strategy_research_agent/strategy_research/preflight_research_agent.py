@@ -28,7 +28,10 @@ DEFAULT_REGISTRY = AGENT_ROOT / "strategy_registry.json"
 MEMORY_HYPOTHESIS_PLAN = AGENT_ROOT / "experiments/memory_guided_hypothesis_plan.json"
 WORKFLOW_GATE = AGENT_ROOT / "enforce_agent_workflow_gate.py"
 PROGRAM_POSTMORTEM = AGENT_ROOT / "postmortems/latest_research_program_postmortem.json"
+PROGRAM_RESET = AGENT_ROOT / "program_reset/latest_research_program_reset.json"
+MECHANISM_POLICY = AGENT_ROOT / "mechanism_variants/latest_mechanism_variant_policy.json"
 RESEARCH_ALLOCATOR = AGENT_ROOT / "research_allocation/latest_research_family_allocator.json"
+E62_STAGE_IMPORT = AGENT_ROOT / "background/e62/latest_stage_import.json"
 LEVERAGE_SOURCE_PATHS = [
     REPO_ROOT / "user_data/strategies",
     AGENT_ROOT,
@@ -302,17 +305,53 @@ def check_research_reflection(
         else:
             policy = postmortem.get("policy") or {}
             valid = (
-                postmortem.get("scope") == "E1-E41"
-                and int((postmortem.get("summary") or {}).get("expected_experiments") or 0) == 41
+                postmortem.get("scope") == "E1-E62"
+                and int((postmortem.get("summary") or {}).get("expected_experiments") or 0) == 62
                 and policy.get("data_blocked_is_not_edge_failure") is True
                 and int(policy.get("same_evidence_failure_limit") or 0) == 3
+                and int(policy.get("max_structural_variants_per_mechanism") or 0) == 3
             )
             add(
                 checks,
                 "research_postmortem",
                 "ok" if valid else "fail",
-                "E1-E41 indexed; data blockers excluded; three-failure saturation locked" if valid else "postmortem contract mismatch",
+                "E1-E62 indexed; data blockers separated; three-variant quarantine locked" if valid else "postmortem contract mismatch",
             )
+
+    for name, path in (
+        ("research_program_reset", PROGRAM_RESET),
+        ("mechanism_variant_policy", MECHANISM_POLICY),
+    ):
+        if not path.exists():
+            add(checks, name, missing_status, f"Missing {rel(path)}")
+            continue
+        try:
+            payload = load_json(path)
+        except (OSError, json.JSONDecodeError) as exc:
+            add(checks, name, "fail", f"Invalid {name}: {exc}")
+            continue
+        if name == "research_program_reset":
+            e62 = payload.get("e62_background_acquisition") or {}
+            valid = (
+                payload.get("program_scope") == "E1-E62"
+                and e62.get("occupies_active_strategy_research") is False
+                and (
+                    e62.get("outcomes_read") is not True
+                    or e62.get("count_gate_ready") is True
+                )
+                and (payload.get("strategy_synthesis_contract") or {}).get(
+                    "positive_independent_home_regime_windows_required"
+                )
+                == 2
+            )
+        else:
+            valid = int(payload.get("max_structural_variants_per_mechanism") or 0) == 3
+        add(
+            checks,
+            name,
+            "ok" if valid else "fail",
+            "bounded research reset contract loaded" if valid else f"{name} contract mismatch",
+        )
 
     if not RESEARCH_ALLOCATOR.exists():
         add(
@@ -342,6 +381,44 @@ def check_research_reflection(
         "ok" if valid else "fail",
         f"deployment/research split locked; selected={selected}; synthesis blocked" if valid else "allocator separation contract mismatch",
     )
+
+
+def check_e62_stage_import(checks: list[Check]) -> None:
+    if not E62_STAGE_IMPORT.exists():
+        add(
+            checks,
+            "e62_stage_import",
+            "warn",
+            f"No staged blind receipts imported yet: {rel(E62_STAGE_IMPORT)}",
+        )
+        return
+    try:
+        payload = load_json(E62_STAGE_IMPORT)
+    except (OSError, json.JSONDecodeError) as exc:
+        add(checks, "e62_stage_import", "fail", f"Invalid staged import: {exc}")
+        return
+    valid = (
+        payload.get("research_only") is True
+        and payload.get("outcomes_read") is False
+        and isinstance(payload.get("rows"), list)
+        and all(
+            str(row.get("segment") or "").startswith(
+                "user_data/data/binance/futures_aux/force_order_market_v2/"
+            )
+            for row in payload.get("rows") or []
+        )
+    )
+    receipt_count = int(payload.get("staged_receipts") or 0)
+    if not valid:
+        status = "fail"
+        detail = "staged import violated the research-only blind acquisition contract"
+    elif receipt_count == 0:
+        status = "warn"
+        detail = "blind import contract verified, but no staged receipts are complete yet"
+    else:
+        status = "ok"
+        detail = f"blind import verified; receipts={receipt_count}; outcomes unread"
+    add(checks, "e62_stage_import", status, detail)
 
 
 def check_strategy_taxonomy(checks: list[Check]) -> None:
@@ -527,6 +604,9 @@ def check_outputs(checks: list[Check]) -> None:
         "factor_strategy_plan": AGENT_ROOT / "factors/latest_factor_strategy_plan.md",
         "event_study": AGENT_ROOT / "event_studies/latest_event_study.md",
         "research_postmortem": AGENT_ROOT / "postmortems/latest_research_program_postmortem.md",
+        "research_program_reset": AGENT_ROOT / "program_reset/latest_research_program_reset.md",
+        "mechanism_variant_policy": AGENT_ROOT / "mechanism_variants/latest_mechanism_variant_policy.md",
+        "e62_stage_import": AGENT_ROOT / "background/e62/latest_stage_import.md",
         "research_allocator": AGENT_ROOT / "research_allocation/latest_research_family_allocator.md",
         "memory_guided_hypotheses": AGENT_ROOT / "experiments/memory_guided_hypothesis_ledger.md",
         "memory_guided_strategy_ledger": AGENT_ROOT / "experiments/memory_guided_strategy_ledger.md",
@@ -572,6 +652,7 @@ def main() -> int:
         checks,
         allow_rebuild=args.allow_research_reflection_rebuild,
     )
+    check_e62_stage_import(checks)
     check_strategy_taxonomy(checks)
     check_family_exit_risk_contract(checks)
     check_pair_universe(checks)

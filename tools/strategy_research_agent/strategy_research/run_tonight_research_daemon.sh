@@ -3,11 +3,8 @@ set -euo pipefail
 shopt -s nullglob
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-if [[ -d "$SCRIPT_DIR/../../user_data/strategy_research" && -d "$SCRIPT_DIR/../../.venv" ]]; then
-  REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-elif [[ -d "$SCRIPT_DIR/../../../user_data/strategy_research" && -d "$SCRIPT_DIR/../../../.venv" ]]; then
-  REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
-else
+REPO_ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null || true)"
+if [[ -z "$REPO_ROOT" || ! -d "$REPO_ROOT/.git" || ! -d "$REPO_ROOT/user_data/strategy_research" || ! -x "$REPO_ROOT/.venv/bin/python" ]]; then
   echo "Could not locate freqtrade repo root from $SCRIPT_DIR" >&2
   exit 2
 fi
