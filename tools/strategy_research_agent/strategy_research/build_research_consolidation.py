@@ -37,12 +37,16 @@ REGIME_WINDOWS_JSON = AGENT_ROOT / "regime_windows/latest_regime_windows.json"
 REGIME_QUARANTINE_JSON = AGENT_ROOT / "regime_windows/regime_inference_quarantine.json"
 FAILURE_FUNNEL_JSON = AGENT_ROOT / "failure_funnel/latest_research_failure_funnel.json"
 PROGRAM_POSTMORTEM_JSON = AGENT_ROOT / "postmortems/latest_research_program_postmortem.json"
+PROGRAM_RESET_JSON = AGENT_ROOT / "program_reset/latest_research_program_reset.json"
+MECHANISM_POLICY_JSON = AGENT_ROOT / "mechanism_variants/latest_mechanism_variant_policy.json"
 RESEARCH_ALLOCATOR_JSON = AGENT_ROOT / "research_allocation/latest_research_family_allocator.json"
 
 
 REQUIRED_GATES = [
     "current_market_state_family_router",
     "research_program_postmortem",
+    "research_program_reset",
+    "mechanism_variant_gate",
     "research_family_allocator",
     "factor_research",
     "factor_candidate_event_study",
@@ -310,6 +314,8 @@ def build_payload() -> dict[str, Any]:
     regime_quarantine = load_json(REGIME_QUARANTINE_JSON)
     failure_funnel = load_json(FAILURE_FUNNEL_JSON)
     program_postmortem = load_json(PROGRAM_POSTMORTEM_JSON)
+    program_reset = load_json(PROGRAM_RESET_JSON)
+    mechanism_policy = load_json(MECHANISM_POLICY_JSON)
     research_allocator = load_json(RESEARCH_ALLOCATOR_JSON)
     required_checks = Counter()
     knowledge_domains = Counter()
@@ -365,7 +371,8 @@ def build_payload() -> dict[str, Any]:
             "Use realistic cost as the primary edge screen and enforce explicit stress safety floors of -10% home total and -15% worst home episode.",
             "Run the current market-state family router before deployment decisions and preserve no-trade as a valid output; never use that current-state result as the sole next-family research allocator.",
             "The current market-state family router controls deployment permission only; the independent research-family allocator controls historical next-family research allocation.",
-            "Load the E1-E41 postmortem and independent research-family allocator before factor research, event study, strategy generation, or mature researcher queue execution.",
+            "Treat no_research_allocation as a valid research result. Continue only the frozen evidence-acquisition axis and never fall back to stale factor targets or adjacent strategy generation.",
+            "Load the E1-E62 postmortem, bounded program reset, mechanism-variant policy, and independent research-family allocator before factor research, event study, strategy generation, or mature researcher queue execution.",
             "Do not treat legacy bull_home/range_home/bear_home/high_vol_hostile labels as market truth; old outputs are raw date-range backtests only until relabeled.",
             "Use the versioned pair universe: core BTC/ETH by default, SOL/BNB/XRP only when explicitly requested as extension or research_all scope.",
             "Do not treat high liquidity as sufficient for trading safety; excluded high-manipulation or unstable contract classes remain outside the research universe.",
@@ -379,7 +386,10 @@ def build_payload() -> dict[str, Any]:
             "If no event has verdict=edge_candidate, produce event redesigns, data-collection tasks, or negative-control studies instead of another strategy class.",
             "Load the current research failure funnel before choosing the next experiment; classify blockers as gross_fail, cost_killed, validation_reversal, data_blocked, execution_incompatible, or gate_semantic_block.",
             "Treat data_blocked and sample_or_causality as unavailable evidence, not failed edge. Suspend only after three consecutive edge-readable failures reuse the same family, mechanism, and data source.",
-            "Keep E1 and E33 frozen as retained research assets. Keep E23 and E32 waiting for genuinely new prospective evidence; do not rerun them unchanged.",
+            "Give one unchanged mechanism at most three structural variants. Three failed variants quarantine it until a newly validated event changes the mechanism fingerprint.",
+            "Keep E1 and E33 frozen as retained research assets. Remediate E7/E32/E45 as implementation errors, and keep E23/E61/E62 waiting for genuinely new prospective evidence; do not rerun them unchanged.",
+            "Run E62 blind force-order acquisition in the background outside the active strategy-research slot until the frozen 80-event, two-sided, cross-pair, cross-day and cross-hour count gates pass.",
+            "Prioritize force-order plus OI, funding, basis or mark dislocation and causal next-3m response; adjacent OHLCV threshold tuning requires new positive event evidence.",
             "Do not generate a neighboring filter from an unchanged blocker fingerprint. Continue prospective evidence collection without reading outcomes before its sample gate.",
             "After Freqtrade backtesting, run event-to-execution alignment when an event definition exists; do not treat pandas event-study edge as executable until actual trades, skipped signals, startup blocks, and overlap blocks are reconciled.",
             "After every backtest or strategy research round, run post-run attribution before updating research memory, mature researcher queues, or next experiments.",
@@ -414,6 +424,8 @@ def build_payload() -> dict[str, Any]:
             "factor_strategy_plan": FACTOR_RESEARCH_POLICY["latest_factor_strategy_plan"],
             "research_failure_funnel": rel(FAILURE_FUNNEL_JSON) if failure_funnel else None,
             "research_program_postmortem": rel(PROGRAM_POSTMORTEM_JSON) if program_postmortem else None,
+            "research_program_reset": rel(PROGRAM_RESET_JSON) if program_reset else None,
+            "mechanism_variant_policy": rel(MECHANISM_POLICY_JSON) if mechanism_policy else None,
             "research_family_allocator": rel(RESEARCH_ALLOCATOR_JSON) if research_allocator else None,
         },
         "observed_counts": {
@@ -440,6 +452,8 @@ def build_operating_rules(payload: dict[str, Any]) -> dict[str, Any]:
             rel(REGIME_WINDOWS_JSON),
             rel(REGIME_QUARANTINE_JSON),
             rel(PROGRAM_POSTMORTEM_JSON),
+            rel(PROGRAM_RESET_JSON),
+            rel(MECHANISM_POLICY_JSON),
             rel(RESEARCH_ALLOCATOR_JSON),
             rel(FAILURE_FUNNEL_JSON),
             rel(LATEST_JSON),

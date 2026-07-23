@@ -73,7 +73,8 @@ The gate requires these fixed artifacts to be loadable:
 - workflow contract
 - data-derived regime window manifest
 - regime inference quarantine manifest
-- E1-E41 research program postmortem
+- E1-E62 research program postmortem
+- bounded research program reset and three-variant mechanism policy
 - independent research-family allocation
 - current research failure funnel and blocker fingerprint
 - weekly knowledge update layer
@@ -97,15 +98,15 @@ code from theory alone.
 
 1. Preflight.
 2. Run the current market-state family router to determine deployment permission, including no-trade.
-3. Rebuild the E1-E41 postmortem and run the independent allocator to choose one under-covered family and its data-derived historical home regime.
+3. Rebuild the E1-E62 postmortem and bounded program reset, then run the independent allocator. It may choose one under-covered family and a data-derived home regime, or return `no_research_allocation` and keep work on the frozen evidence-acquisition axis.
 4. Load knowledge graph, research memory, and consolidation rules.
-5. Run allocator-targeted factor research on `3m`/`5m`/`15m` futures using the typed price-action, regime, derivatives, microstructure, and cross-asset registry.
+5. Only when a family is allocated, run allocator-targeted factor research on `3m`/`5m`/`15m` futures using the typed price-action, regime, derivatives, microstructure, and cross-asset registry. A no-allocation result must not fall back to stale factor targets.
 6. Freeze factor thresholds on the earliest chronological home episode; test gross edge on de-clustered events, then realistic costs and unchanged-threshold replication on later independent regime windows.
 7. Treat any gross-positive single-factor row as supporting evidence only. It may enter structural composition even when its isolated cost or replication gate fails, but it has no standalone authority; compose its frozen condition with a predeclared structural event for the allocated strategy family.
 8. Repeat gross, realistic-cost, and independent validation-window gates on that family-factor composite, and verify any auxiliary input has a causal Freqtrade runtime path.
 9. Refresh the failure funnel. If there is no current validated composite event or the blocker fingerprint is unchanged, stop adjacent variant generation. All-history scans remain diagnostics and cannot replace current-allocation reports.
 10. Refresh data-derived regime windows and quarantine legacy regime interpretations.
-11. Generate memory-guided strategy variants only when their `source_event_id` matches a current validated family-factor composite event; refreshed knowledge/memory alone cannot authorize code generation.
+11. Generate at most three structural variants for one unchanged mechanism, and only when `source_event_id` matches a current validated family-factor composite event that is net-positive under realistic costs in two independent home-regime windows and has a causal runtime path. Three failed variants quarantine the mechanism.
 12. Backtest through Freqtrade.
 13. Run event-to-Freqtrade execution alignment when an event definition exists.
 14. Run post-run attribution.
@@ -116,6 +117,15 @@ code from theory alone.
 19. Run family risk gate. Native finite protection evidence must come from Freqtrade; permanent-disable replay is a separate diagnostic.
 20. Run promotion gate.
 21. Update strategy lineage, research memory, consolidation, dashboard, and registry.
+
+E62 collection is staged outside `Documents` under
+`~/Library/Application Support/FreqtradeStrategyResearch/e62-runtime` because
+macOS TCC blocks a user `launchd` job from entering the repository directly.
+The staged runtime contains byte-identical frozen collector/auditor sources and
+never reads price outcomes. `install_launchd.sh` prepares that runtime, and the
+next non-preflight research entry imports only SHA-256-verified receipts and
+segments before rebuilding E62 readiness. The repository remains the authority
+for audit reports; the staging directory is acquisition transport only.
 
 Family-risk and promotion gate results are research evidence even when they
 fail. Strategies in the current registered family-gate CSV enter lineage as
@@ -225,7 +235,11 @@ still require trade-level artifacts before dry-run review.
 - Factor research: `user_data/strategy_research/factors/latest_factor_research.md`
 - Factor-to-strategy plan: `user_data/strategy_research/factors/latest_factor_strategy_plan.md`
 - Research failure funnel: `user_data/strategy_research/failure_funnel/latest_research_failure_funnel.md`
-- E1-E41 postmortem: `user_data/strategy_research/postmortems/latest_research_program_postmortem.md`
+- E1-E62 postmortem: `user_data/strategy_research/postmortems/latest_research_program_postmortem.md`
+- Program reset: `user_data/strategy_research/program_reset/latest_research_program_reset.md`
+- Mechanism variant policy: `user_data/strategy_research/mechanism_variants/latest_mechanism_variant_policy.md`
+- E62 blind sample readiness: `user_data/strategy_research/event_studies/latest_e62_force_order_sample_readiness.md`
+- E62 staged import: `user_data/strategy_research/background/e62/latest_stage_import.md`
 - Research allocator: `user_data/strategy_research/research_allocation/latest_research_family_allocator.md`
 - Event study: `user_data/strategy_research/event_studies/latest_event_study.md`
 - Chan third-point event study: `user_data/strategy_research/event_studies/latest_chan_third_point_event_study.md`

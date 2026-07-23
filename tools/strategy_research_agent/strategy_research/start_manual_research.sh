@@ -2,20 +2,18 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-if [[ -d "$SCRIPT_DIR/../../user_data/strategy_research" && -d "$SCRIPT_DIR/../../.venv" ]]; then
-  cd "$SCRIPT_DIR/../.."
-elif [[ -d "$SCRIPT_DIR/../../../user_data/strategy_research" && -d "$SCRIPT_DIR/../../../.venv" ]]; then
-  cd "$SCRIPT_DIR/../../.."
-else
+ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null || true)"
+if [[ -z "$ROOT" || ! -d "$ROOT/.git" || ! -d "$ROOT/user_data/strategy_research" || ! -x "$ROOT/.venv/bin/python" ]]; then
   echo "Could not locate freqtrade repo root from $SCRIPT_DIR" >&2
   exit 2
 fi
+cd "$ROOT"
 
 PYTHON="${PYTHON:-./.venv/bin/python}"
 
 usage() {
   cat <<'EOF'
-Usage: user_data/strategy_research/start_manual_research.sh [--quick|--source-scout|--price-action-knowledge|--bilibili-transcripts|--knowledge-graph|--knowledge-guided-hypotheses|--factor-research|--factor-to-strategy|--research-postmortem|--research-allocator|--failure-funnel|--event-study|--chan-event-study|--event-execution-alignment|--regime-windows|--current-market-router|--agent-brain|--weekly-knowledge-update|--walk-forward|--promotion-gate|--family-risk-gate|--a1-external-permission|--dryrun-risk-preflight|--trade-behavior|--failure-attribution|--post-run-attribution|--mature-researcher|--mature-researcher-queue|--execute-mature-researcher|--strategy-lineage|--research-memory|--memory-guided-hypotheses|--memory-guided-strategies|--preflight-only] [--extra-agent-arg ARG ...]
+Usage: user_data/strategy_research/start_manual_research.sh [--quick|--source-scout|--price-action-knowledge|--bilibili-transcripts|--knowledge-graph|--knowledge-guided-hypotheses|--factor-research|--factor-to-strategy|--research-postmortem|--research-reset|--e62-background-once|--research-allocator|--failure-funnel|--event-study|--chan-event-study|--event-execution-alignment|--regime-windows|--current-market-router|--agent-brain|--weekly-knowledge-update|--walk-forward|--promotion-gate|--family-risk-gate|--a1-external-permission|--dryrun-risk-preflight|--trade-behavior|--failure-attribution|--post-run-attribution|--mature-researcher|--mature-researcher-queue|--execute-mature-researcher|--strategy-lineage|--research-memory|--memory-guided-hypotheses|--memory-guided-strategies|--preflight-only] [--extra-agent-arg ARG ...]
 
 Manual entrypoint for the research-only strategy agent.
 
@@ -34,7 +32,10 @@ Modes:
   --factor-to-strategy
                      Convert validated factor events into guarded strategy hypotheses; does not generate strategy classes directly.
   --research-postmortem
-                     Rebuild the E1-E41 family/stage/failure postmortem without running a new experiment.
+                     Rebuild the E1-E62 family/stage/failure postmortem without running a new experiment.
+  --research-reset   Rebuild the bounded program reset, mechanism quarantine, and E62 background status.
+  --e62-background-once
+                     Run one blind force-order acquisition cycle; never reads outcomes or generates strategy code.
   --research-allocator
                      Refresh the independent next-family research allocation; never enables trading or synthesis.
   --failure-funnel   Classify the current research blocker and decide whether adjacent variant generation is allowed.
@@ -126,6 +127,14 @@ while [[ $# -gt 0 ]]; do
       ;;
     --research-postmortem)
       mode="research_postmortem"
+      shift
+      ;;
+    --research-reset)
+      mode="research_reset"
+      shift
+      ;;
+    --e62-background-once)
+      mode="e62_background_once"
       shift
       ;;
     --research-allocator)
@@ -288,9 +297,35 @@ if [[ ! -f user_data/strategy_research/regime_windows/latest_regime_windows.json
   exit 1
 fi
 
-if [[ ! -f user_data/strategy_research/postmortems/latest_research_program_postmortem.json ]]; then
-  echo "== Strategy Research Agent: bootstrap E1-E41 research postmortem =="
+import_staged_e62() {
+  if [[ ! -f user_data/strategy_research/import_e62_background_data.py ]]; then
+    return
+  fi
+  echo "== Strategy Research Agent: import verified E62 staged receipts =="
+  "$PYTHON" user_data/strategy_research/import_e62_background_data.py >/dev/null
+  local prereg=(user_data/strategy_research/preregistrations/e62_direct_force_order_exhaustion_continuation_v1_*.json)
+  local receipts=(user_data/strategy_research/data_receipts/force_order_market_v2/*.json)
+  if [[ -f "${prereg[0]}" && -f "${receipts[0]}" ]]; then
+    "$PYTHON" user_data/strategy_research/summarize_e61_force_order_inventory.py >/dev/null
+    "$PYTHON" user_data/strategy_research/summarize_e62_force_order_sample.py >/dev/null
+  fi
+}
+
+import_staged_e62
+
+postmortem_scope=""
+if [[ -f user_data/strategy_research/postmortems/latest_research_program_postmortem.json ]]; then
+  postmortem_scope=$("$PYTHON" -c 'import json; print(json.load(open("user_data/strategy_research/postmortems/latest_research_program_postmortem.json"))["scope"])' 2>/dev/null || true)
+fi
+if [[ "$postmortem_scope" != "E1-E62" ]]; then
+  echo "== Strategy Research Agent: bootstrap E1-E62 research postmortem =="
   "$PYTHON" user_data/strategy_research/research_program_postmortem.py
+fi
+
+if [[ ! -f user_data/strategy_research/program_reset/latest_research_program_reset.json ]] || [[ "$postmortem_scope" != "E1-E62" ]]; then
+  echo "== Strategy Research Agent: bootstrap bounded research program reset =="
+  "$PYTHON" user_data/strategy_research/mechanism_variant_policy.py >/dev/null
+  "$PYTHON" user_data/strategy_research/research_program_reset.py
 fi
 
 if [[ ! -f user_data/strategy_research/research_allocation/latest_research_family_allocator.json ]]; then
@@ -325,8 +360,11 @@ run_current_market_router() {
 }
 
 run_research_postmortem() {
-  echo "== Strategy Research Agent: E1-E41 research program postmortem =="
+  import_staged_e62
+  echo "== Strategy Research Agent: E1-E62 research program postmortem =="
   "$PYTHON" user_data/strategy_research/research_program_postmortem.py
+  "$PYTHON" user_data/strategy_research/mechanism_variant_policy.py >/dev/null
+  "$PYTHON" user_data/strategy_research/research_program_reset.py
 }
 
 run_research_reflection() {
@@ -410,6 +448,14 @@ refresh_dashboard_if_available() {
   fi
 }
 
+solidify_research_reset() {
+  echo "== Strategy Research Agent: reset-aligned failure funnel and memory =="
+  "$PYTHON" user_data/strategy_research/research_failure_funnel.py
+  "$PYTHON" user_data/strategy_research/build_research_memory.py
+  "$PYTHON" user_data/strategy_research/build_research_consolidation.py
+  refresh_dashboard_if_available
+}
+
 case "$mode" in
   quick)
     echo "== Strategy Research Agent: quick refresh =="
@@ -482,6 +528,16 @@ case "$mode" in
     ;;
   research_postmortem)
     run_research_postmortem
+    ;;
+  research_reset)
+    run_research_reflection
+    solidify_research_reset
+    ;;
+  e62_background_once)
+    user_data/strategy_research/run_e62_background_collection.sh
+    echo "== Strategy Research Agent: refresh allocator after E62 acquisition =="
+    "$PYTHON" user_data/strategy_research/research_family_allocator.py "${pair_scope_args[@]}"
+    solidify_research_reset
     ;;
   research_allocator)
     ;;
@@ -660,6 +716,9 @@ Factors:    user_data/strategy_research/factors/latest_factor_research.md
 FactorPlan: user_data/strategy_research/factors/latest_factor_strategy_plan.md
 FailFunnel:user_data/strategy_research/failure_funnel/latest_research_failure_funnel.md
 Postmortem:user_data/strategy_research/postmortems/latest_research_program_postmortem.md
+ProgramReset:user_data/strategy_research/program_reset/latest_research_program_reset.md
+Mechanisms:user_data/strategy_research/mechanism_variants/latest_mechanism_variant_policy.md
+E62Sample:  user_data/strategy_research/event_studies/latest_e62_force_order_sample_readiness.md
 Allocator:  user_data/strategy_research/research_allocation/latest_research_family_allocator.md
 EventStudy:user_data/strategy_research/event_studies/latest_event_study.md
 ChanStudy: user_data/strategy_research/event_studies/latest_chan_third_point_event_study.md

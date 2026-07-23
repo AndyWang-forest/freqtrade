@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -24,6 +25,7 @@ MANUAL_LESSONS_DIR = OUTPUT_DIR / "manual_lessons"
 REGIME_QUARANTINE_JSON = AGENT_ROOT / "regime_windows/regime_inference_quarantine.json"
 FAILURE_FUNNEL_JSON = AGENT_ROOT / "failure_funnel/latest_research_failure_funnel.json"
 PROGRAM_POSTMORTEM_JSON = AGENT_ROOT / "postmortems/latest_research_program_postmortem.json"
+PROGRAM_RESET_JSON = AGENT_ROOT / "program_reset/latest_research_program_reset.json"
 RESEARCH_ALLOCATOR_JSON = AGENT_ROOT / "research_allocation/latest_research_family_allocator.json"
 LEGACY_REGIME_TOKENS = [
     "bull_home",
@@ -160,40 +162,43 @@ def build_next_focus(
     agenda: dict[str, Any],
     nodes: list[dict[str, Any]],
     failure_funnel: dict[str, Any] | None = None,
+    program_reset: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     funnel = failure_funnel or {}
+    reset = program_reset or {}
     decision = funnel.get("current_target_decision", {})
     if funnel and decision.get("strategy_synthesis_allowed") is False:
         target = funnel.get("current_target", {})
         families = target.get("family_codes", [])
+        no_allocation = decision.get("decision") == "no_research_allocation"
         focus = [
             {
                 "strategy": "current_" + "_".join(families or ["no_trade"]) + "_research_target",
                 "blocker": decision.get("decision") or "no_current_validated_factor_event",
                 "objective": decision.get("next_action"),
-                "success_gate": "At least one current, de-clustered factor event has positive gross and realistic-cost edge in independent regime windows.",
-                "next_command": "user_data/strategy_research/start_manual_research.sh --factor-research",
+                "success_gate": (
+                    "A newly eligible family or a changed causal evidence fingerprint reopens allocation."
+                    if no_allocation
+                    else "At least one current, de-clustered factor event has positive gross and realistic-cost edge in independent regime windows."
+                ),
+                "next_command": (
+                    "user_data/strategy_research/start_manual_research.sh --research-reset"
+                    if no_allocation
+                    else "user_data/strategy_research/start_manual_research.sh --factor-research"
+                ),
                 "source": "research_failure_funnel",
             }
         ]
-        pending = next(
-            (
-                item
-                for item in funnel.get("entries", [])
-                if item.get("experiment") in {"E36", "E37"}
-                and item.get("primary_category") == "data_blocked"
-            ),
-            None,
-        )
-        if pending:
+        e62 = reset.get("e62_background_acquisition") or {}
+        if e62 and e62.get("count_gate_ready") is not True:
             focus.append(
                 {
-                    "strategy": "E32_E36_prospective_L1_evidence",
+                    "strategy": "E62_blind_force_order_acquisition",
                     "blocker": "prospective_sample_gate_pending",
-                    "objective": "Continue unchanged L1 collection; keep outcomes unread until the preregistered sample gate passes.",
-                    "success_gate": "Two independent complete 7-day range windows with at least 99.5% 15m coverage.",
-                    "next_command": "user_data/strategy_research/start_manual_research.sh --failure-funnel",
-                    "source": "research_failure_funnel",
+                    "objective": "Continue cross-day blind force-order collection in the background; keep outcomes unread and do not consume an active strategy-research slot.",
+                    "success_gate": "All frozen E62 count gates pass: 80 independent events, 20 per side, three pairs per side, three UTC dates, and twelve UTC hours.",
+                    "next_command": "user_data/strategy_research/start_manual_research.sh --research-reset",
+                    "source": "research_program_reset",
                 }
             )
         return focus
@@ -249,10 +254,47 @@ def active_manual_lessons(lessons: list[dict[str, Any]]) -> list[dict[str, Any]]
     return [
         lesson
         for lesson in lessons
-        if lesson.get("quarantine_status") != "needs_regime_relabel"
+        if not lesson.get("quarantine_status")
         and str(lesson.get("status") or "active_research_lesson")
         not in inactive_statuses
     ]
+
+
+def quarantine_implementation_lessons(
+    lessons: list[dict[str, Any]], program_decision: dict[str, Any]
+) -> list[dict[str, Any]]:
+    remediation_ids = {
+        str(value).upper()
+        for value in program_decision.get("implementation_remediation") or []
+    }
+    if not remediation_ids:
+        return lessons
+    quarantined = []
+    for lesson in lessons:
+        item = dict(lesson)
+        identities = lesson_experiment_ids(item)
+        matches = sorted(remediation_ids.intersection(identities))
+        if matches and not item.get("quarantine_status"):
+            item["quarantine_status"] = "implementation_remediation"
+            item["quarantine_reason"] = "experiment_evidence_invalid_until_implementation_remediated"
+            item["implementation_experiments"] = matches
+        quarantined.append(item)
+    return quarantined
+
+
+def lesson_experiment_ids(lesson: dict[str, Any]) -> set[str]:
+    identities: set[str] = set()
+    for key in ("id", "experiment_id", "source_experiment_id"):
+        value = str(lesson.get(key) or "")
+        match = re.match(r"^(?:\d{8}_)?(E\d+)(?:_|$)", value, re.IGNORECASE)
+        if match:
+            identities.add(match.group(1).upper())
+    for evidence in lesson.get("evidence") or []:
+        name = Path(str(evidence)).name
+        match = re.match(r"^(?:\d{8}_)?(E\d+)(?:_|$)", name, re.IGNORECASE)
+        if match:
+            identities.add(match.group(1).upper())
+    return identities
 
 
 def build_knowledge_gaps(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -358,12 +400,21 @@ def build_payload() -> dict[str, Any]:
     agenda = load_json(AGENT_ROOT / "research_agendas/latest_research_agenda.json")
     assessment = load_json(AGENT_ROOT / "strategy_assessments/latest_strategy_assessment.json")
     graph_context = load_json(GRAPH_CONTEXT_JSON)
-    manual_lessons = load_manual_lessons()
-    active_lessons = active_manual_lessons(manual_lessons)
     regime_quarantine = load_regime_quarantine()
     failure_funnel = load_json(FAILURE_FUNNEL_JSON)
     program_postmortem = load_json(PROGRAM_POSTMORTEM_JSON)
+    program_reset = load_json(PROGRAM_RESET_JSON)
     research_allocator = load_json(RESEARCH_ALLOCATOR_JSON)
+    program_decision = program_postmortem.get("decision") or {}
+    manual_lessons = quarantine_implementation_lessons(
+        load_manual_lessons(), program_decision
+    )
+    active_lessons = active_manual_lessons(manual_lessons)
+    frozen_assets = "/".join(program_decision.get("freeze_assets") or []) or "none"
+    waiting_assets = "/".join(program_decision.get("wait_for_new_data") or []) or "none"
+    remediation_assets = (
+        "/".join(program_decision.get("implementation_remediation") or []) or "none"
+    )
     nodes = lineage.get("nodes", [])
     failure_summary = failure.get("failure_mode_summary", [])
     payload = {
@@ -372,7 +423,7 @@ def build_payload() -> dict[str, Any]:
         "strategy_count": len(nodes),
         "active_roots": build_active_roots(nodes),
         "avoid_patterns": build_avoid_patterns(nodes, failure_summary),
-        "next_focus": build_next_focus(agenda, nodes, failure_funnel),
+        "next_focus": build_next_focus(agenda, nodes, failure_funnel, program_reset),
         "knowledge_gaps": build_knowledge_gaps(nodes),
         "knowledge_memory": build_knowledge_memory(graph_context) if graph_context else {},
         "strategy_taxonomy": taxonomy_summary(),
@@ -382,6 +433,8 @@ def build_payload() -> dict[str, Any]:
                 "id": lesson.get("id"),
                 "status": lesson.get("status"),
                 "quarantine_status": lesson.get("quarantine_status"),
+                "quarantine_reason": lesson.get("quarantine_reason"),
+                "implementation_experiments": lesson.get("implementation_experiments"),
                 "superseded_by": lesson.get("superseded_by"),
             }
             for lesson in manual_lessons
@@ -396,6 +449,7 @@ def build_payload() -> dict[str, Any]:
         "program_reflection": {
             "scope": program_postmortem.get("scope"),
             "decision": program_postmortem.get("decision", {}),
+            "program_reset": program_reset,
             "family_matrix": program_postmortem.get("family_matrix", []),
             "research_allocation": research_allocator.get("research_allocation", {}),
             "deployment_permission": research_allocator.get("deployment_permission", {}),
@@ -414,7 +468,7 @@ def build_payload() -> dict[str, Any]:
             "Do not generate an adjacent strategy variant when the current failure-funnel blocker is unchanged or when no current validated factor event exists.",
             "The current market-state router controls deployment permission only; the independent allocator selects the next under-covered research family across data-derived home regimes.",
             "Suspend adjacent variants after three consecutive edge-readable failures reuse the same family, mechanism, and data source; data/sample blockers do not count as edge failures.",
-            "Keep E1 and E33 frozen as retained research assets; keep E23 and E32 waiting for genuinely new prospective evidence instead of rerunning them unchanged.",
+            f"Keep {frozen_assets} frozen as retained research assets; keep {waiting_assets} waiting for genuinely new prospective evidence, and treat {remediation_assets} as implementation remediation instead of rerunning any of them unchanged.",
         ]
         + [lesson["memory_rule"] for lesson in active_lessons if lesson.get("memory_rule")],
         "source_artifacts": {
@@ -426,6 +480,7 @@ def build_payload() -> dict[str, Any]:
             "regime_inference_quarantine": rel(REGIME_QUARANTINE_JSON) if regime_quarantine else None,
             "research_failure_funnel": rel(FAILURE_FUNNEL_JSON) if failure_funnel else None,
             "research_program_postmortem": rel(PROGRAM_POSTMORTEM_JSON) if program_postmortem else None,
+            "research_program_reset": rel(PROGRAM_RESET_JSON) if program_reset else None,
             "research_family_allocator": rel(RESEARCH_ALLOCATOR_JSON) if research_allocator else None,
         },
     }

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build a conservative E1-E41 research-program postmortem.
+"""Build a conservative E1-E62 research-program postmortem.
 
 The report separates unavailable data from failed edge, preserves retained
 research assets, and measures family/evidence saturation.  It never generates
@@ -30,7 +30,8 @@ REGISTRY_JSON = AGENT_ROOT / "strategy_registry.json"
 FACTOR_JSON = AGENT_ROOT / "factors/latest_factor_research.json"
 E1_REPORT = AGENT_ROOT / "reports/latest_e1_sol15m_q20_next_confirm_strategy_experiment.md"
 
-EXPERIMENT_RANGE = range(1, 42)
+EXPECTED_EXPERIMENTS = 62
+EXPERIMENT_RANGE = range(1, EXPECTED_EXPERIMENTS + 1)
 EDGE_FAILURES = {
     "gross_fail",
     "cost_killed",
@@ -39,6 +40,18 @@ EDGE_FAILURES = {
     "execution_incompatible",
 }
 NON_EDGE_BLOCKERS = {"data_blocked", "sample_or_causality"}
+PROGRAM_BUCKETS = {
+    "risk_gate": "retained_effective",
+    "validated_or_near_success": "retained_effective",
+    "data_blocked": "waiting_for_data",
+    "sample_or_causality": "sample_insufficient",
+    "execution_incompatible": "implementation_error",
+    "gross_fail": "disproven",
+    "cost_killed": "disproven",
+    "validation_reversal": "disproven",
+    "robustness_fail": "disproven",
+    "unknown": "unresolved",
+}
 
 FAMILY_CODE_ALIASES = {
     "A1": "downtrend_failed_bounce_short",
@@ -234,7 +247,24 @@ def outcome_for(payload: dict[str, Any], number: int) -> tuple[str, str]:
         return "data_blocked", "prospective sample pending; outcomes remain unread"
     if number == 32:
         return "execution_incompatible", "development edge retained for future replication; single-slot pair coverage was incomplete"
-    if any(token in text for token in ("blocked_by_public", "data_unavailable", "coverage", "continue_collection", "event_pending", "sample_pending")) and outcomes_read is not True:
+    if number == 61:
+        return "data_blocked", "direct force-order transport is restored; prospective causal sample acquisition remains unfinished"
+    if number == 62:
+        return "sample_or_causality", "frozen blind force-order sample has not met its preregistered count and coverage gates"
+    if any(
+        token in text
+        for token in (
+            "blocked_by_public",
+            "data_unavailable",
+            "coverage",
+            "continue_collection",
+            "continue_prospective_collection",
+            "collector_ready",
+            "prospective_accumulation",
+            "event_pending",
+            "sample_pending",
+        )
+    ) and outcomes_read is not True:
         return "data_blocked", decision or "required causal data/sample is not yet available"
     if any(token in text for token in ("causality_gate", "blind_sample")) and outcomes_read is not True:
         return "sample_or_causality", decision or "blind sample or causality gate failed before outcomes"
@@ -244,6 +274,16 @@ def outcome_for(payload: dict[str, Any], number: int) -> tuple[str, str]:
         return "execution_incompatible", decision or "event evidence did not map safely to executable trades"
     if synthesis or gate_pass is True or outcome_pass is True:
         return "validated_or_near_success", decision or "development/event gate passed"
+
+    legacy_gates = payload.get("gates") or []
+    if legacy_gates and all(item.get("passed") is False for item in legacy_gates):
+        return "robustness_fail", "all machine-readable candidate gates failed"
+    outcome_gates = payload.get("outcome_gates") or {}
+    if outcome_gates and all(
+        isinstance(item, dict) and item.get("passed") is False
+        for item in outcome_gates.values()
+    ):
+        return "robustness_fail", "all machine-readable side outcome gates failed"
 
     phase = str(payload.get("phase") or "").lower()
     if "validation" in phase or "locked_validation" in phase or "validation" in decision.lower():
@@ -312,7 +352,7 @@ def record_for(number: int, registry: dict[str, Any]) -> dict[str, Any]:
     lifecycle = "closed"
     if number == 33:
         lifecycle = "frozen_research_asset"
-    elif number in {23, 32}:
+    elif number in {23, 61, 62}:
         lifecycle = "wait_for_new_prospective_data"
     elif outcome == "validated_or_near_success":
         lifecycle = "development_pass_needs_next_gate"
@@ -336,6 +376,13 @@ def record_for(number: int, registry: dict[str, Any]) -> dict[str, Any]:
         "supporting_artifacts": [rel(item) for item in supporting if item != path],
         "artifact_count": len(supporting),
     }
+
+
+def add_program_buckets(records: list[dict[str, Any]]) -> None:
+    for record in records:
+        record["program_bucket"] = PROGRAM_BUCKETS.get(
+            str(record.get("outcome") or "unknown"), "unresolved"
+        )
 
 
 def add_evidence_novelty(records: list[dict[str, Any]]) -> None:
@@ -419,9 +466,11 @@ def build_payload() -> dict[str, Any]:
     registry = load_json(REGISTRY_JSON)
     records = [record_for(number, registry) for number in EXPERIMENT_RANGE]
     add_evidence_novelty(records)
+    add_program_buckets(records)
     family_rows = family_summaries(records, registry)
     outcome_counts = Counter(item["outcome"] for item in records)
     stage_counts = Counter(item["stage"] for item in records)
+    bucket_counts = Counter(item["program_bucket"] for item in records)
     retained_assets = [
         {
             "experiment_id": item["experiment_id"],
@@ -434,21 +483,35 @@ def build_payload() -> dict[str, Any]:
     ]
     return {
         "generated_at_utc": now_utc(),
-        "schema_version": 1,
+        "schema_version": 2,
         "research_only": True,
-        "scope": "E1-E41",
+        "scope": "E1-E62",
         "policy": {
             "data_blocked_is_not_edge_failure": True,
             "prospective_outcomes_remain_unread_until_sample_gate": True,
             "same_evidence_failure_limit": 3,
+            "max_structural_variants_per_mechanism": 3,
             "portfolio_concentration_is_deprioritization_not_edge_rejection": True,
+            "new_strategy_requires_positive_event_study": True,
+            "new_strategy_requires_two_positive_home_windows": True,
+            "new_strategy_requires_realistic_cost_and_runtime_compatibility": True,
         },
         "summary": {
-            "expected_experiments": 41,
+            "expected_experiments": EXPECTED_EXPERIMENTS,
             "indexed_experiments": sum(item["artifact_count"] > 0 for item in records),
             "missing_experiments": [item["experiment_id"] for item in records if item["artifact_count"] == 0],
             "outcome_counts": dict(sorted(outcome_counts.items())),
             "stage_counts": dict(sorted(stage_counts.items())),
+            "program_bucket_counts": dict(sorted(bucket_counts.items())),
+            "program_buckets": {
+                bucket: [
+                    item["experiment_id"]
+                    for item in records
+                    if item["program_bucket"] == bucket
+                ]
+                for bucket in sorted(set(PROGRAM_BUCKETS.values()))
+            },
+            "new_validated_strategy_output": False,
         },
         "factor_screen": factor_screen_summary(),
         "retained_or_waiting_assets": retained_assets,
@@ -457,8 +520,15 @@ def build_payload() -> dict[str, Any]:
         "decision": {
             "generate_new_strategy_now": False,
             "freeze_assets": ["E1", "E33"],
-            "wait_for_new_data": ["E23", "E32"],
-            "next_step": "Run the independent research-family allocator; do not select the next family from current deployment state alone.",
+            "wait_for_new_data": ["E23", "E61", "E62"],
+            "implementation_remediation": [
+                item["experiment_id"]
+                for item in records
+                if item["program_bucket"] == "implementation_error"
+            ],
+            "background_acquisition": ["E62"],
+            "active_evidence_axis": "force_order_plus_oi_funding_basis_plus_causal_price_response",
+            "next_step": "Keep E62 in background blind acquisition and require a newly validated composite event before any new strategy class.",
         },
     }
 
@@ -466,15 +536,17 @@ def build_payload() -> dict[str, Any]:
 def write_markdown(path: Path, payload: dict[str, Any]) -> None:
     summary = payload["summary"]
     factor = payload["factor_screen"]
+    decision = payload["decision"]
     lines = [
-        "# E1-E41 Research Program Postmortem",
+        "# E1-E62 Research Program Postmortem",
         "",
         f"- Generated UTC: `{payload['generated_at_utc']}`",
-        f"- Indexed experiments: `{summary['indexed_experiments']}/41`",
+        f"- Indexed experiments: `{summary['indexed_experiments']}/{EXPECTED_EXPERIMENTS}`",
         f"- Missing experiment artifacts: `{', '.join(summary['missing_experiments']) or 'none'}`",
         f"- Current factor screen: `{factor['evaluations']}` evaluations / `{factor['unique_factors']}` independent factor names / `{factor['edge_candidates']}` final edge candidates.",
         "- Data/sample blockers are not counted as failed edge.",
         "- This report does not authorize strategy synthesis, dry-run, registry, or live changes.",
+        f"- Program buckets: `{json.dumps(summary['program_bucket_counts'], sort_keys=True)}`",
         "",
         "## Retained And Waiting Assets",
         "",
@@ -504,14 +576,14 @@ def write_markdown(path: Path, payload: dict[str, Any]) -> None:
             "",
             "## Experiment Funnel",
             "",
-            "| ID | Family | Stage | Outcome | Lifecycle | Mechanism | Data | New evidence | Evidence |",
-            "|---|---|---|---|---|---|---|---|---|",
+            "| ID | Bucket | Family | Stage | Outcome | Lifecycle | Mechanism | Data | New evidence | Evidence |",
+            "|---|---|---|---|---|---|---|---|---|---|",
         ]
     )
     for item in payload["experiments"]:
         evidence = f"`{item['primary_artifact']}`" if item["primary_artifact"] else "missing"
         lines.append(
-            f"| {item['experiment_id']} | {item['family_code']} | {item['stage']} | {item['outcome']} | {item['lifecycle']} | "
+            f"| {item['experiment_id']} | {item['program_bucket']} | {item['family_code']} | {item['stage']} | {item['outcome']} | {item['lifecycle']} | "
             f"{item['mechanism_cluster']} | {item['data_source_cluster']} | {item['new_evidence_generation']} | {evidence} |"
         )
     lines.extend(
@@ -519,7 +591,13 @@ def write_markdown(path: Path, payload: dict[str, Any]) -> None:
             "",
             "## Program Decision",
             "",
-            "Pause adjacent strategy generation. Preserve E1/E33, keep E23/E32 waiting for genuinely new prospective evidence, and let the independent research allocator choose the next under-covered family.",
+            "Pause adjacent strategy generation. Preserve "
+            + "/".join(decision["freeze_assets"])
+            + ", remediate "
+            + "/".join(decision["implementation_remediation"])
+            + " separately, keep "
+            + "/".join(decision["wait_for_new_data"])
+            + " on evidence acquisition, and allow new code only after a positive composite event replicates in two home-regime windows under realistic costs with a causal runtime path.",
         ]
     )
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -543,7 +621,9 @@ def main() -> int:
     json_path, md_path = write_outputs(payload)
     print(f"Wrote {rel(json_path)}")
     print(f"Wrote {rel(md_path)}")
-    print("Decision: pause adjacent strategy generation; run research allocator next.")
+    print(
+        "Decision: pause adjacent strategy generation; continue the frozen evidence axis and E62 blind background acquisition."
+    )
     return 0
 
 

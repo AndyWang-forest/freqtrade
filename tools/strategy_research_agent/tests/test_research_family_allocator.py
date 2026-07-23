@@ -38,6 +38,13 @@ def _manifest() -> dict[str, object]:
 
 def _postmortem(*, suspend_c2: bool = False) -> dict[str, object]:
     return {
+        "decision": {
+            "freeze_assets": ["E1", "E33"],
+            "wait_for_new_data": ["E23", "E61", "E62"],
+            "implementation_remediation": ["E32"],
+            "background_acquisition": ["E62"],
+            "active_evidence_axis": "force_order_plus_oi_funding_basis_plus_causal_price_response",
+        },
         "family_matrix": [
             {
                 "strategy_family": "uptrend_pullback_long",
@@ -83,6 +90,14 @@ def test_current_range_state_does_not_force_range_research(monkeypatch) -> None:
     assert payload["research_allocation"]["family_code"] == "C2"
     assert payload["research_allocation"]["regime_label"] == "bull"
     assert payload["research_allocation"]["strategy_synthesis_allowed"] is False
+    assert payload["frozen_or_waiting_branches"] == {
+        "frozen_research_assets": ["E1", "E33"],
+        "wait_for_new_prospective_data": ["E23", "E61", "E62"],
+        "implementation_remediation": ["E32"],
+        "background_acquisition": ["E62"],
+        "active_evidence_axis": "force_order_plus_oi_funding_basis_plus_causal_price_response",
+        "must_not_be_retested_unchanged": True,
+    }
 
 
 def test_same_evidence_saturation_removes_family_from_selection(monkeypatch) -> None:
@@ -101,6 +116,33 @@ def test_same_evidence_saturation_removes_family_from_selection(monkeypatch) -> 
     assert c2["eligible"] is False
     assert "same_evidence_failure_limit_reached" in c2["blockers"]
     assert payload["research_allocation"].get("family_code") != "C2"
+
+
+def test_no_family_allocation_routes_to_program_evidence_axis(monkeypatch) -> None:
+    manifest = {
+        "windows": [
+            {"label": label, "name": f"{label}_only", "status": "active"}
+            for label in ("bull", "bear", "range", "high_vol")
+        ]
+    }
+    payloads = {
+        allocator.POSTMORTEM_JSON: _postmortem(),
+        allocator.ROUTER_JSON: {},
+        allocator.MANIFEST_JSON: manifest,
+        allocator.REGISTRY_JSON: {"strategies": []},
+    }
+    monkeypatch.setattr(allocator, "load_json", lambda path: payloads.get(path, {}))
+    monkeypatch.setattr(allocator, "global_family_coverage", lambda memory, manifest: {})
+
+    payload = allocator.build_payload()
+    allocation = payload["research_allocation"]
+
+    assert allocation["action"] == "no_research_allocation"
+    assert allocation["next_stage"] == "program_evidence_acquisition_only"
+    assert allocation["active_evidence_axis"] == (
+        "force_order_plus_oi_funding_basis_plus_causal_price_response"
+    )
+    assert "without generating strategy code" in allocation["reason"]
 
 
 def test_global_history_prevents_reselecting_heavily_researched_c2(monkeypatch) -> None:

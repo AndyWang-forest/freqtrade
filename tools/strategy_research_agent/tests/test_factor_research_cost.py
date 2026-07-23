@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import argparse
+
 import sys
 from pathlib import Path
 
@@ -15,6 +17,18 @@ import factor_research  # noqa: E402
 
 def test_factor_research_uses_shared_realistic_friction() -> None:
     assert factor_research.REALISTIC_ROUND_TRIP_FRICTION == 0.0015
+
+
+def test_allocator_no_allocation_report_replaces_current_pointer() -> None:
+    args = argparse.Namespace(
+        auto_target=True,
+        publish_all_history_current=False,
+    )
+
+    assert factor_research.should_publish_current(
+        args,
+        {"regime_label": None, "summary": {"verdict": "blocked_by_allocator_no_research_target"}},
+    )
 
 
 def test_side_score_deducts_fee_and_slippage() -> None:
