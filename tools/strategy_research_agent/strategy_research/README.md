@@ -127,6 +127,20 @@ next non-preflight research entry imports only SHA-256-verified receipts and
 segments before rebuilding E62 readiness. The repository remains the authority
 for audit reports; the staging directory is acquisition transport only.
 
+Before any E62 outcome can be opened, run the explicit blind audit path:
+
+```bash
+user_data/strategy_research/start_manual_research.sh --e62-pre-unblind
+```
+
+This refreshes closed `3m` candles for the fixed five-pair research universe,
+builds daily BTC/ETH regime labels that become effective one UTC day later,
+and checks every development-prefix sample gate. The audit reads only the
+`date` column from the five OHLCV files. It never reads candle values, event
+returns, or strategy outcomes, and it does not overwrite the regime manifest
+whose hash was frozen in the original E62 preregistration. Even a passing audit
+only permits a separate immutable prefix lock before development unblinding.
+
 Family-risk and promotion gate results are research evidence even when they
 fail. Strategies in the current registered family-gate CSV enter lineage as
 `research_evidence` even when they are not in registry. A failed gate must still
@@ -146,6 +160,7 @@ user_data/strategy_research/start_manual_research.sh --knowledge-guided-hypothes
 user_data/strategy_research/start_manual_research.sh --factor-research
 user_data/strategy_research/start_manual_research.sh --factor-to-strategy
 user_data/strategy_research/start_manual_research.sh --failure-funnel
+user_data/strategy_research/start_manual_research.sh --e62-pre-unblind
 user_data/strategy_research/start_manual_research.sh --event-study
 user_data/strategy_research/start_manual_research.sh --chan-event-study
 user_data/strategy_research/start_manual_research.sh --event-execution-alignment

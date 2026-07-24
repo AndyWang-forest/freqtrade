@@ -13,7 +13,7 @@ PYTHON="${PYTHON:-./.venv/bin/python}"
 
 usage() {
   cat <<'EOF'
-Usage: user_data/strategy_research/start_manual_research.sh [--quick|--source-scout|--price-action-knowledge|--bilibili-transcripts|--knowledge-graph|--knowledge-guided-hypotheses|--factor-research|--factor-to-strategy|--research-postmortem|--research-reset|--e62-background-once|--research-allocator|--failure-funnel|--event-study|--chan-event-study|--event-execution-alignment|--regime-windows|--current-market-router|--agent-brain|--weekly-knowledge-update|--walk-forward|--promotion-gate|--family-risk-gate|--a1-external-permission|--dryrun-risk-preflight|--trade-behavior|--failure-attribution|--post-run-attribution|--mature-researcher|--mature-researcher-queue|--execute-mature-researcher|--strategy-lineage|--research-memory|--memory-guided-hypotheses|--memory-guided-strategies|--preflight-only] [--extra-agent-arg ARG ...]
+Usage: user_data/strategy_research/start_manual_research.sh [--quick|--source-scout|--price-action-knowledge|--bilibili-transcripts|--knowledge-graph|--knowledge-guided-hypotheses|--factor-research|--factor-to-strategy|--research-postmortem|--research-reset|--e62-background-once|--e62-pre-unblind|--research-allocator|--failure-funnel|--event-study|--chan-event-study|--event-execution-alignment|--regime-windows|--current-market-router|--agent-brain|--weekly-knowledge-update|--walk-forward|--promotion-gate|--family-risk-gate|--a1-external-permission|--dryrun-risk-preflight|--trade-behavior|--failure-attribution|--post-run-attribution|--mature-researcher|--mature-researcher-queue|--execute-mature-researcher|--strategy-lineage|--research-memory|--memory-guided-hypotheses|--memory-guided-strategies|--preflight-only] [--extra-agent-arg ARG ...]
 
 Manual entrypoint for the research-only strategy agent.
 
@@ -36,6 +36,10 @@ Modes:
   --research-reset   Rebuild the bounded program reset, mechanism quarantine, and E62 background status.
   --e62-background-once
                      Run one blind force-order acquisition cycle; never reads outcomes or generates strategy code.
+  --e62-pre-unblind  Refresh research_all 3m tails, build next-day-effective
+                     regime labels, and audit every frozen blind sample gate.
+                     Reads candle timestamps only during the audit and never
+                     opens outcomes or generates strategy code.
   --research-allocator
                      Refresh the independent next-family research allocation; never enables trading or synthesis.
   --failure-funnel   Classify the current research blocker and decide whether adjacent variant generation is allowed.
@@ -135,6 +139,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --e62-background-once)
       mode="e62_background_once"
+      shift
+      ;;
+    --e62-pre-unblind)
+      mode="e62_pre_unblind"
       shift
       ;;
     --research-allocator)
@@ -271,6 +279,9 @@ run_preflight() {
   if [[ "$mode" == "regime_windows" ]]; then
     preflight_args+=(--allow-regime-rebuild --allow-research-reflection-rebuild)
   fi
+  if [[ "$mode" == "e62_pre_unblind" ]]; then
+    preflight_args+=(--e62-pre-unblind)
+  fi
   echo "== Strategy Research Agent: preflight =="
   "$PYTHON" user_data/strategy_research/preflight_research_agent.py "${preflight_args[@]}"
 }
@@ -312,6 +323,22 @@ import_staged_e62() {
 }
 
 import_staged_e62
+
+if [[ "$mode" == "e62_pre_unblind" ]]; then
+  pair_scope_for_preflight="research_all"
+  echo "== Strategy Research Agent: refresh E62 research_all closed 3m tails =="
+  "$PYTHON" user_data/strategy_research/refresh_binance_um_ohlcv_tail.py \
+    --pair-scope research_all \
+    --timeframe 3m
+  echo "== Strategy Research Agent: build next-day-effective E62 regime labels =="
+  "$PYTHON" user_data/strategy_research/build_e62_causal_regime_labels.py
+  echo "== Strategy Research Agent: blind E62 pre-unblind audit =="
+  "$PYTHON" user_data/strategy_research/audit_e62_pre_unblind.py
+  run_preflight
+  echo "== Strategy Research Agent: fixed workflow gate =="
+  "$PYTHON" user_data/strategy_research/enforce_agent_workflow_gate.py
+  exit 0
+fi
 
 postmortem_scope=""
 if [[ -f user_data/strategy_research/postmortems/latest_research_program_postmortem.json ]]; then
@@ -719,6 +746,7 @@ Postmortem:user_data/strategy_research/postmortems/latest_research_program_postm
 ProgramReset:user_data/strategy_research/program_reset/latest_research_program_reset.md
 Mechanisms:user_data/strategy_research/mechanism_variants/latest_mechanism_variant_policy.md
 E62Sample:  user_data/strategy_research/event_studies/latest_e62_force_order_sample_readiness.md
+E62Blind:   user_data/strategy_research/event_studies/latest_e62_pre_unblind_audit.md
 Allocator:  user_data/strategy_research/research_allocation/latest_research_family_allocator.md
 EventStudy:user_data/strategy_research/event_studies/latest_event_study.md
 ChanStudy: user_data/strategy_research/event_studies/latest_chan_third_point_event_study.md
