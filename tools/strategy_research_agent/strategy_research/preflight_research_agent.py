@@ -32,6 +32,7 @@ PROGRAM_RESET = AGENT_ROOT / "program_reset/latest_research_program_reset.json"
 MECHANISM_POLICY = AGENT_ROOT / "mechanism_variants/latest_mechanism_variant_policy.json"
 RESEARCH_ALLOCATOR = AGENT_ROOT / "research_allocation/latest_research_family_allocator.json"
 E62_STAGE_IMPORT = AGENT_ROOT / "background/e62/latest_stage_import.json"
+E62_PRE_UNBLIND_AUDIT = AGENT_ROOT / "event_studies/latest_e62_pre_unblind_audit.json"
 LEVERAGE_SOURCE_PATHS = [
     REPO_ROOT / "user_data/strategies",
     AGENT_ROOT,
@@ -70,6 +71,14 @@ def parse_args() -> argparse.Namespace:
         choices=["core", "extension", "research_all"],
         default="core",
         help="Pair universe data coverage to check. Defaults to core BTC/ETH futures.",
+    )
+    parser.add_argument(
+        "--e62-pre-unblind",
+        action="store_true",
+        help=(
+            "Check the E62 research_all 3m evidence path without requiring "
+            "unrelated strategy timeframes to be fresh."
+        ),
     )
     return parser.parse_args()
 
@@ -421,6 +430,42 @@ def check_e62_stage_import(checks: list[Check]) -> None:
     add(checks, "e62_stage_import", status, detail)
 
 
+def check_e62_pre_unblind_audit(checks: list[Check]) -> None:
+    if not E62_PRE_UNBLIND_AUDIT.exists():
+        add(
+            checks,
+            "e62_pre_unblind_audit",
+            "warn",
+            f"Not generated yet: {rel(E62_PRE_UNBLIND_AUDIT)}",
+        )
+        return
+    try:
+        payload = load_json(E62_PRE_UNBLIND_AUDIT)
+    except (OSError, json.JSONDecodeError) as exc:
+        add(checks, "e62_pre_unblind_audit", "fail", f"Invalid audit: {exc}")
+        return
+    valid = (
+        payload.get("experiment_id") == "E62"
+        and payload.get("research_only") is True
+        and payload.get("outcomes_read") is False
+        and payload.get("candle_values_read") is False
+        and payload.get("development_outcome_read_allowed") is False
+        and payload.get("strategy_synthesis_allowed") is False
+        and payload.get("registry_allowed") is False
+        and payload.get("dryrun_permission") is False
+    )
+    add(
+        checks,
+        "e62_pre_unblind_audit",
+        "ok" if valid else "fail",
+        (
+            f"blind boundary verified; decision={payload.get('decision')}"
+            if valid
+            else "pre-unblind audit violated the E62 blind research contract"
+        ),
+    )
+
+
 def check_strategy_taxonomy(checks: list[Check]) -> None:
     missing = sorted(REQUIRED_TAXONOMY_IDS - set(STRATEGY_TAXONOMY))
     if missing:
@@ -554,11 +599,15 @@ def check_data(checks: list[Check], registry: dict[str, Any] | None) -> None:
             add(checks, f"data:{pair}:{timeframe}", "fail", f"{rel(path)}: {exc}")
 
 
-def check_pair_scope_data(checks: list[Check], pair_scope: str) -> None:
+def check_pair_scope_data(
+    checks: list[Check],
+    pair_scope: str,
+    timeframes: tuple[str, ...] = ("3m", "5m", "15m"),
+) -> None:
     pairs = pairs_for_scope(pair_scope)
     detail = "core data coverage" if pairs == CORE_FUTURES_PAIRS else f"{pair_scope} data coverage"
     for pair in pairs:
-        for timeframe in ["3m", "5m", "15m"]:
+        for timeframe in timeframes:
             path = pair_data_path(pair, timeframe)
             if not path.exists():
                 add(checks, f"pair_scope_data:{pair}:{timeframe}", "fail", f"Missing {rel(path)} for {detail}.")
@@ -607,6 +656,9 @@ def check_outputs(checks: list[Check]) -> None:
         "research_program_reset": AGENT_ROOT / "program_reset/latest_research_program_reset.md",
         "mechanism_variant_policy": AGENT_ROOT / "mechanism_variants/latest_mechanism_variant_policy.md",
         "e62_stage_import": AGENT_ROOT / "background/e62/latest_stage_import.md",
+        "e62_pre_unblind_audit": (
+            AGENT_ROOT / "event_studies/latest_e62_pre_unblind_audit.md"
+        ),
         "research_allocator": AGENT_ROOT / "research_allocation/latest_research_family_allocator.md",
         "memory_guided_hypotheses": AGENT_ROOT / "experiments/memory_guided_hypothesis_ledger.md",
         "memory_guided_strategy_ledger": AGENT_ROOT / "experiments/memory_guided_strategy_ledger.md",
@@ -653,13 +705,19 @@ def main() -> int:
         allow_rebuild=args.allow_research_reflection_rebuild,
     )
     check_e62_stage_import(checks)
+    check_e62_pre_unblind_audit(checks)
     check_strategy_taxonomy(checks)
     check_family_exit_risk_contract(checks)
     check_pair_universe(checks)
     check_offline_exchange_pair_universe(checks)
     registry = check_registry(checks)
-    check_data(checks, registry)
-    check_pair_scope_data(checks, args.pair_scope)
+    if not args.e62_pre_unblind:
+        check_data(checks, registry)
+    check_pair_scope_data(
+        checks,
+        args.pair_scope,
+        ("3m",) if args.e62_pre_unblind else ("3m", "5m", "15m"),
+    )
     check_outputs(checks)
     check_git_cleanliness(checks)
 

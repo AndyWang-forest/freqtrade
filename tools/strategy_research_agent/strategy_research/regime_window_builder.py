@@ -145,8 +145,12 @@ def load_pair_1h(pair: str) -> tuple[pd.DataFrame, str]:
     raise FileNotFoundError(f"Missing 1h/15m/5m/1m futures data for {pair}")
 
 
-def daily_features(pair: str) -> tuple[pd.DataFrame, str]:
-    hourly, source = load_pair_1h(pair)
+def daily_features_from_hourly(
+    pair: str,
+    hourly: pd.DataFrame,
+    source: str,
+) -> tuple[pd.DataFrame, str]:
+    """Compute causal daily features from an explicitly selected 1h source."""
     daily = hourly.resample("1D").agg(
         {
             "open": "first",
@@ -190,13 +194,13 @@ def daily_features(pair: str) -> tuple[pd.DataFrame, str]:
     return daily, source
 
 
-def combined_features() -> tuple[pd.DataFrame, dict[str, str]]:
-    sources: dict[str, str] = {}
-    frames = []
-    for pair in PAIRS:
-        frame, source = daily_features(pair)
-        sources[pair] = source
-        frames.append(frame)
+def daily_features(pair: str) -> tuple[pd.DataFrame, str]:
+    hourly, source = load_pair_1h(pair)
+    return daily_features_from_hourly(pair, hourly, source)
+
+
+def combine_daily_feature_frames(frames: list[pd.DataFrame]) -> pd.DataFrame:
+    """Combine BTC/ETH daily features into the shared regime feature set."""
     data = pd.concat(frames, axis=1).dropna(subset=["btc_close", "eth_close"]).copy()
     data["combined_ret_30d"] = data[["btc_ret_30d", "eth_ret_30d"]].mean(axis=1)
     data["combined_ret_60d"] = data[["btc_ret_60d", "eth_ret_60d"]].mean(axis=1)
@@ -209,7 +213,17 @@ def combined_features() -> tuple[pd.DataFrame, dict[str, str]]:
         (data["btc_ret_60d"] > 0) & (data["eth_ret_60d"] > 0)
         | ((data["btc_ret_60d"] < 0) & (data["eth_ret_60d"] < 0))
     ).astype(float)
-    return data, sources
+    return data
+
+
+def combined_features() -> tuple[pd.DataFrame, dict[str, str]]:
+    sources: dict[str, str] = {}
+    frames = []
+    for pair in PAIRS:
+        frame, source = daily_features(pair)
+        sources[pair] = source
+        frames.append(frame)
+    return combine_daily_feature_frames(frames), sources
 
 
 def labels_daily(row: pd.Series) -> tuple[str, ...]:

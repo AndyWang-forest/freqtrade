@@ -56,3 +56,17 @@ def test_research_reset_solidifies_allocator_memory_and_dashboard() -> None:
     assert "refresh_dashboard_if_available" in helper
     assert "run_research_reflection" in reset_case
     assert "solidify_research_reset" in reset_case
+
+
+def test_e62_pre_unblind_uses_separate_causal_artifacts_not_manifest_rebuild() -> None:
+    text = SCRIPT.read_text(encoding="utf-8")
+    block = text[
+        text.index('if [[ "$mode" == "e62_pre_unblind" ]]', text.index("import_staged_e62")) :
+        text.index("postmortem_scope=")
+    ]
+
+    assert "refresh_binance_um_ohlcv_tail.py" in block
+    assert "build_e62_causal_regime_labels.py" in block
+    assert "audit_e62_pre_unblind.py" in block
+    assert "regime_window_builder.py" not in block
+    assert "--pair-scope research_all" in block

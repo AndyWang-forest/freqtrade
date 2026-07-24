@@ -57,8 +57,14 @@ must not be rerun unchanged.
 E62 is a blind cross-day background acquisition lane, not an active strategy
 experiment slot. It remains outcome-unread until the frozen minimums are met:
 80 independent events, 20 per liquidation side, three pairs per side, three UTC
-dates, and 12 UTC hours. Its acquisition loop may update immutable receipts and
-count-readiness reports only; it must not tune filters or generate strategy code.
+dates, 12 UTC hours, at least two distinct data-derived regime episodes with 10
+events each, and exact causal 3m timestamp coverage through +60 minutes. The
+regime state calculated from completed UTC day D becomes effective only on day
+D+1. The pre-unblind auditor may read only candle timestamps; it must not read
+OHLCV values or outcomes. Its acquisition loop may update immutable receipts,
+causal labels, and blind-readiness reports only; it must not tune filters or
+generate strategy code. Passing the blind gates authorizes a separate immutable
+development-prefix lock, not immediate outcome access.
 On macOS, launchd acquisition must run from the staged runtime under
 `~/Library/Application Support/FreqtradeStrategyResearch/e62-runtime`, not from
 the TCC-protected repository in `Documents`. The normal Agent entrypoint imports
